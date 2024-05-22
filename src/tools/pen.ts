@@ -1,4 +1,16 @@
-const line = (pointA, pointB) => {
+import Point from "./point"
+
+export interface Stroke {
+  box: {
+    width: number,
+    height: number,
+  },
+  points: Point[],
+  color: string,
+  width: number,
+}
+
+const line = (pointA: Point, pointB: Point) => {
   const lengthX = pointB.x - pointA.x
   const lengthY = pointB.y - pointA.y
   return {
@@ -7,7 +19,7 @@ const line = (pointA, pointB) => {
   }
 }
 
-const controlPoint = (current, previous, next, reverse) => {
+const controlPoint = (current: Point, previous: Point, next: Point, reverse?: boolean) => {
   const p = previous || current
   const n = next || current
   const o = line(p, n)
@@ -18,20 +30,24 @@ const controlPoint = (current, previous, next, reverse) => {
   return [x, y]
 }
 
-const command = (point, i, a) => {
+const command = (point: Point, i: number, a: Point[]) => {
   const cps = controlPoint(a[i - 1], a[i - 2], point)
   const cpe = controlPoint(point, a[i - 1], a[i + 1], true)
   return `C ${cps[0]},${cps[1]} ${cpe[0]},${cpe[1]} ${point.x},${point.y}`
 }
 
 export default class Pen {
-  constructor(strokes) {
+  strokes: Point[][];
+  _offsetX: number;
+  _offsetY: number;
+
+  constructor(strokes?: Point[][]) {
     this.strokes = strokes || [];
     this._offsetX = 0;
     this._offsetY = 0;
   }
 
-  addStroke(points) {
+  addStroke(points: Point[]) {
     if (points.length > 0) {
       this.strokes.push(points);
     }
@@ -42,19 +58,19 @@ export default class Pen {
     this.strokes.pop()
   }
 
-  setOffset(options) {
+  setOffset(options: Point) {
     if (!options) return
     this._offsetX = options.x;
     this._offsetY = options.y;
   }
 
-  pointsToSvg(data, currentBox) {
+  pointsToSvg(data: Stroke, currentBox: { width: number, height: number }) {
     const points = [];
     const xProp = currentBox.width / data.box.width;
     const yProp = currentBox.height / data.box.height;
 
     for(var i in data.points) {
-      points.push({x: data.points[i].x * xProp, y: data.points[i].y * yProp})
+      points.push(new Point(data.points[i].x * xProp, data.points[i].y * yProp))
     }
 
     if (points.length > 0) {
@@ -73,6 +89,6 @@ export default class Pen {
   }
 
   copy() {
-    return new Reaction(this.strokes.slice());
+    return new Pen(this.strokes.slice());
   }
 }

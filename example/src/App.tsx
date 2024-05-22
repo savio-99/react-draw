@@ -1,10 +1,23 @@
 import React from 'react'
 
-import { ExampleComponent } from 'react-draw'
-import 'react-draw/dist/index.css'
+import Whiteboard from 'react-draw'
 
 const App = () => {
-  return <ExampleComponent text="Create React Library Example 😄" />
+  return <>
+    <Whiteboard zIndex={10} containerStyle={{
+      style: {
+        border: '1px solid black',
+        margin: 10
+      }
+    }} />
+    <Whiteboard zIndex={10} containerStyle={{
+      style: {
+        border: '2px solid black',
+        borderRadius: 10,
+        margin: 100
+      }
+    }} />
+  </>
 }
 
 export default App
