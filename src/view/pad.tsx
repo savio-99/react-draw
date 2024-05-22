@@ -237,6 +237,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     const { height, width, previousStrokes, currentPoints, pen, px, py } = this.state;
     const zIndex = this.props.zIndex || 0;
     const props = (this.props.containerStyle || {}) as React.DetailedHTMLProps<React.HTMLAttributes<HTMLDivElement>, HTMLDivElement>;
+    const rect = this.drawer?.getBoundingClientRect();
 
     if(!props.style) props.style = {
       flex: 1, 
@@ -261,8 +262,8 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
         onMouseMove={this.onResponderMove}
         onMouseUp={this.onResponderRelease}
         style={{ flex: 1, backgroundColor: 'transparent', zIndex }}>
-      </canvas>
-      <svg style={{ position: 'absolute', left: px, top: py, zIndex: zIndex - 1 }} height={height} width={width}>
+      </canvas> 
+      <svg style={{ position: 'absolute', ...(rect ? { rect } : {left: px, top: py}), zIndex: zIndex - 1 }} height={height} width={width}>
           <g>
             {
               previousStrokes.map((e) => (

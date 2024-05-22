@@ -14,7 +14,7 @@ const App = () => {
       style: {
         border: '2px solid black',
         borderRadius: 10,
-        margin: 100
+        margin: 100 
       }
     }} />
   </>
