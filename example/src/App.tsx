@@ -1,6 +1,6 @@
 import React from 'react'
 
-import Whiteboard from 'react-draw'
+import Whiteboard from '@savio99/react-draw'
 
 const App = () => {
   return <>

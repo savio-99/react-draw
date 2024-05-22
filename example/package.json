@@ -1,5 +1,5 @@
 {
-  "name": "react-draw-example",
+  "name": "@savio99/react-draw-example",
   "homepage": ".",
   "version": "0.0.0",
   "private": true,
@@ -27,7 +27,7 @@
     "@babel/plugin-syntax-object-rest-spread": "^7.8.3"
   },
   "eslintConfig": {
-    "extends": "react-app"
+    "extends": "@savio99/react-app"
   },
   "browserslist": {
     "production": [

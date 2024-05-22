@@ -1,8 +1,8 @@
 {
-  "name": "react-draw",
+  "name": "@savio99/react-draw",
   "version": "1.0.0",
   "description": "Simple responsive draw component to sign and draw in your own website",
-  "author": "savio-99",
+  "author": "savio99",
   "license": "MIT",
   "repository": "savio-99/react-draw",
   "main": "dist/index.js",
@@ -10,6 +10,9 @@
   "source": "src/index.tsx",
   "engines": {
     "node": ">=10"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "microbundle-crl --no-compress --format modern,cjs",
