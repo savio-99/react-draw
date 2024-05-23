@@ -66,7 +66,7 @@ export default class Pen {
   }
 
   toSvg(currentBox: { width: number, height: number }) {
-    return this.strokes.map((e) => {
+    return <>{this.strokes.map((e) => {
       const xProp = currentBox.width / e.box.width;
       const yProp = currentBox.height / e.box.height;
 
@@ -78,7 +78,7 @@ export default class Pen {
       stroke={e.color}
       strokeWidth={e.width * weightProp}
       fill="none" />)
-    });
+    })}</>;
   }
 
   pointsToSvg(data: Stroke, currentBox: { width: number, height: number }) {
