@@ -1,4 +1,5 @@
 import Point from "./point"
+import React from 'react'
 
 export interface Stroke {
   box: {
@@ -37,19 +38,19 @@ const command = (point: Point, i: number, a: Point[]) => {
 }
 
 export default class Pen {
-  strokes: Point[][];
+  strokes: Stroke[];
   _offsetX: number;
   _offsetY: number;
 
-  constructor(strokes?: Point[][]) {
+  constructor(strokes?: Stroke[]) {
     this.strokes = strokes || [];
     this._offsetX = 0;
     this._offsetY = 0;
   }
 
-  addStroke(points: Point[]) {
-    if (points.length > 0) {
-      this.strokes.push(points);
+  addStroke(s: Stroke) {
+    if (s.points.length > 0) {
+      this.strokes.push(s);
     }
   }
 
@@ -64,20 +65,29 @@ export default class Pen {
     this._offsetY = options.y;
   }
 
+  toSvg(currentBox: { width: number, height: number }) {
+    return this.strokes.map((e) => (<path
+      key={e.points[0].time}
+      d={this.pointsToSvg(e, currentBox)}
+      stroke={e.color}
+      strokeWidth={e.width}
+      fill="none" />)).join(' ');
+  }
+
   pointsToSvg(data: Stroke, currentBox: { width: number, height: number }) {
     const points = [];
     const xProp = currentBox.width / data.box.width;
     const yProp = currentBox.height / data.box.height;
 
-    for(var i in data.points) {
+    for (var i in data.points) {
       points.push(new Point(data.points[i].x * xProp, data.points[i].y * yProp))
     }
 
     if (points.length > 0) {
       var path = points.reduce((acc, point, i, a) => i === 0
-      ? `M ${point.x},${point.y}`
-      : `${acc} ${command(point, i, a)}`
-    , '')
+        ? `M ${point.x},${point.y}`
+        : `${acc} ${command(point, i, a)}`
+        , '')
       return path;
     } else {
       return ''

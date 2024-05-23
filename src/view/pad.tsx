@@ -203,7 +203,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     var points = this.state.currentPoints
     points.box = { height, width };
 
-    this.state.pen.addStroke(this.state.currentPoints.points)
+    this.state.pen.addStroke(this.state.currentPoints)
 
     this.setState({
       previousStrokes: [...strokes, points],
