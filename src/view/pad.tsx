@@ -228,9 +228,14 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
   }
 
   componentDidMount() {
+    window.addEventListener('scroll', this.updateSvgPosition);
+    window.addEventListener('resize', this.updateSvgPosition);
+    this.updateSvgPosition();
+  }
+
+  componentWillUnmount(): void {
     window.removeEventListener('scroll', this.updateSvgPosition);
     window.removeEventListener('resize', this.updateSvgPosition);
-    this.updateSvgPosition();
   }
 
   render() {
@@ -266,14 +271,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       <svg style={{ position: 'absolute', ...(rect ? { rect } : {left: px, top: py}), zIndex: zIndex - 1 }} height={height} width={width}>
           <g>
             {
-              previousStrokes.map((e) => (
-                <path
-                  key={e.points[0].time}
-                  d={pen.pointsToSvg(e, { height, width })}
-                  stroke={e.color}
-                  strokeWidth={e.width}
-                  fill="none" />
-              ))
+              new Pen(previousStrokes).toSvg({ width, height})
             }
             <path
               d={pen.pointsToSvg(currentPoints, { height, width })}
@@ -281,7 +279,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
               strokeWidth={currentPoints.width}
               fill="none" />
           </g>
-        </svg>
+        </svg> 
     </div>)
   }
 }
