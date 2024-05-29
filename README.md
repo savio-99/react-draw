@@ -1,13 +1,14 @@
-# react-draw
+# @savio99/react-draw
 
 > Simple responsive draw component to sign and draw in your own website
 
-[![NPM](https://img.shields.io/npm/v/react-draw.svg)](https://www.npmjs.com/package/react-draw) [![JavaScript Style Guide](https://img.shields.io/badge/code_style-standard-brightgreen.svg)](https://standardjs.com)
+[![NPM Version](https://img.shields.io/npm/v/@savio99/react-draw.svg?branch=master)](https://www.npmjs.com/package/@savio99/react-draw) [![License](https://img.shields.io/npm/l/@savio99/react-draw.svg)](https://github.com/savio-99/react-draw/blob/master/LICENSE)
+
 
 ## Install
 
 ```bash
-npm install --save @savio-99/react-draw
+npm install --save @savio99/react-draw
 ```
 
 ## Usage

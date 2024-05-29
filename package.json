@@ -1,6 +1,6 @@
 {
   "name": "@savio99/react-draw",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Simple responsive draw component to sign and draw in your own website",
   "author": "savio99",
   "license": "MIT",
@@ -14,6 +14,15 @@
   "publishConfig": {
     "access": "public"
   },
+  "keywords": [
+    "react-component",
+    "react",
+    "canvas",
+    "drawing",
+    "responsive",
+    "responsive-draw",
+    "signature"
+  ],
   "scripts": {
     "build": "microbundle-crl --no-compress --format modern,cjs",
     "start": "microbundle-crl watch --no-compress --format modern,cjs",
