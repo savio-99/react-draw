@@ -54,7 +54,7 @@ export default class Pen {
     }
   }
 
-  rewindStroke() {
+  undoStroke() {
     if (this.strokes.length < 1) return
     this.strokes.pop()
   }

@@ -7,7 +7,7 @@
 ## Install
 
 ```bash
-npm install --save react-draw
+npm install --save @savio-99/react-draw
 ```
 
 ## Usage
@@ -15,13 +15,49 @@ npm install --save react-draw
 ```tsx
 import React, { Component } from 'react'
 
-import MyComponent from 'react-draw'
+import Whiteboard, { Stroke } from 'react-draw'
 import 'react-draw/dist/index.css'
 
-class Example extends Component {
-  render() {
-    return <MyComponent />
-  }
+interface ExampleProps {
+  initialStrokes?: Stroke[]
+}
+
+export default function Example({
+  initialStrokes
+}: ExampleProps) {
+  const whiteboard = useRef<Whiteboard>(null);
+  const [strokes, setStrokes] = useState<Stroke[]>([]);
+
+  return <>
+    <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'center' }}>
+      <button onClick={() => whiteboard.current?.undo()}>Undo</button>
+      <button onClick={() => whiteboard.current?.clear()}>Clear</button>
+      <input type="color" onChange={(e) => whiteboard.current?.changeColor(e.target.value)} />
+      <input type="number" onChange={(e) => whiteboard.current?.changeStrokeWidth(parseInt(e.target.value))} defaultValue={4} />
+    </div>
+    <Whiteboard
+      containerStyle={{
+        style: {
+          border: '2px solid black',
+          borderRadius: 10,
+          margin: 100
+        }
+      }}
+      initialStrokes={initialStrokes}
+      onChangeStrokes={(strokes: Stroke[]) => setStrokes(strokes)}
+      ref={whiteboard} />
+    <Whiteboard
+      containerStyle={{
+        style: {
+          border: '2px solid black',
+          borderRadius: 10,
+          width: '50%',
+          height: '20%',
+          margin: 100
+        }
+      }}
+      strokes={strokes} />
+  </>
 }
 ```
 

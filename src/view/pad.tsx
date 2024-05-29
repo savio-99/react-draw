@@ -7,13 +7,10 @@ interface WhiteboardProps {
   containerStyle?: React.DetailedHTMLProps<React.HTMLAttributes<HTMLDivElement>, HTMLDivElement>,
   strokeColor?: string,
   strokeWidth?: number,
-  rewind?: Function,
-  clear?: Function,
-  changeStroke?: Function,
-  changeColor?: Function,
   onChangeStrokes?: Function,
-  strokes?: any[],
-  zIndex: number
+  strokes?: Stroke[],
+  initialStrokes?: Stroke[],
+  zIndex?: number
 }
 
 interface WhiteboardState {
@@ -22,7 +19,7 @@ interface WhiteboardState {
   previousStrokes: Stroke[],
   pen: Pen,
   strokeWidth: number,
-  strokeColor: string,
+  strokeColor: string, 
   height: number,
   width: number,
   px: number,
@@ -31,17 +28,12 @@ interface WhiteboardState {
 
 export default class Whiteboard extends React.Component<WhiteboardProps, WhiteboardState> {
 
-  _clientEvents: {
-    rewind: Function,
-    clear: Function,
-    changeStroke: Function,
-    changeColor: Function
-  }
   drawer: HTMLCanvasElement | null = null;
   _panResponder: any;
 
   constructor(props: WhiteboardProps) {
     super(props)
+
     this.state = {
       tracker: 0,
       currentPoints: {
@@ -50,7 +42,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
         box: { height: 0, width: 0 },
         points: []
       },
-      previousStrokes: [],
+      previousStrokes: this.props.initialStrokes || [],
       pen: new Pen(),
       strokeWidth: props.strokeWidth || 4,
       strokeColor: props.strokeColor || '#000000',
@@ -59,34 +51,23 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       px: 0,
       py: 0
     }
-    const rewind = props.rewind || function () { }
-    const clear = props.clear || function () { }
-    const changeStroke = props.changeStroke || function () { }
-    const changeColor = props.changeColor || function () { }
-
-
-    this._clientEvents = {
-      rewind: rewind(this.rewind),
-      clear: clear(this.clear),
-      changeStroke: changeStroke(this.changeStroke),
-      changeColor: changeColor(this.changeColor)
-    }
 
   }
 
   componentDidUpdate() {
-    if (this.props.enabled == false && this.props.strokes !== undefined && this.props.strokes.length !== this.state.previousStrokes.length) {
-      this.setState({ previousStrokes: this.props.strokes || this.state.previousStrokes })
+    if(this.props.strokes) console.log(this.props.strokes.length)
+    if (this.props.strokes !== undefined && this.props.strokes.length !== this.state.previousStrokes.length) {
+      this.setState({ previousStrokes: this.props.strokes })
     }
     
   }
 
-  rewind = () => {
+  undo = () => {
     if (this.state.currentPoints.points.length > 0 || this.state.previousStrokes.length < 1) return
     let strokes = this.state.previousStrokes
     strokes.pop()
 
-    this.state.pen.rewindStroke()
+    this.state.pen.undoStroke()
     const { height, width } = this.state;
 
     this.setState({
@@ -109,7 +90,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     this.setState({ currentPoints, strokeColor: color })
   }
 
-  changeStroke = (stroke: number) => {
+  changeStrokeWidth = (stroke: number) => {
     const { currentPoints } = this.state;
     currentPoints.width = stroke;
     this.setState({ currentPoints, strokeWidth: stroke })
@@ -118,21 +99,6 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
   _onChangeStrokes = (strokes: Stroke[]) => {
     if (this.props.onChangeStrokes) this.props.onChangeStrokes(strokes)
   }
-
-  /*shouldComponentUpdate(_: Readonly<WhiteboardProps>, nextState: Readonly<WhiteboardState>, __: any): boolean {
-    if(this.state.strokeColor !== nextState.strokeColor) return true;
-    if(this.state.strokeWidth !== nextState.strokeWidth) return true;
-    if(this.state.height !== nextState.height) return true;
-    if(this.state.width!== nextState.width) return true;
-    if(this.state.currentPoints.points.length !== nextState.currentPoints.points.length) return true;
-    if(this.state.previousStrokes.length !== nextState.previousStrokes.length) return true;
-    if(this.state.height !== nextState.height) return true;
-    if(this.state.width!== nextState.width) return true;
-    if(this.state.px !== nextState.px) return true;
-    if(this.state.py !== nextState.py) return true;
-    
-    return false;
-  }*/
 
   clear = () => {
     const { height, width } = this.state;
@@ -225,7 +191,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       currentPoints.box = { height, width };
       this.setState({ height, width, px: left, py: top, currentPoints });
     }
-  }
+  } 
 
   componentDidMount() {
     window.addEventListener('scroll', this.updateSvgPosition);
