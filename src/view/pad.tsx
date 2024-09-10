@@ -55,11 +55,15 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
   }
 
   componentDidUpdate() {
-    if(this.props.strokes) console.log(this.props.strokes.length)
+    //if(this.props.strokes) console.log(this.props.strokes.length)
     if (this.props.strokes !== undefined && this.props.strokes.length !== this.state.previousStrokes.length) {
       this.setState({ previousStrokes: this.props.strokes })
     }
     
+  }
+
+  preventDefault = (e: Event) => {
+    e.preventDefault();
   }
 
   undo = () => {
@@ -125,18 +129,20 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     var y: number = 0;
     var time: number | undefined = undefined;
 
+    const rect = this.drawer?.getBoundingClientRect();
     if (evt.touches) {
       let event = evt as TouchEvent
       let touch: React.Touch | null = event.touches[0];
 
       if (!touch) return;
 
-      x = touch.clientX;
-      y = touch.clientY;
+      if(rect) {
+      x = touch.clientX - rect.left;
+      y = touch.clientY - rect.top;
+      }
       time = evt.timeStamp;
     } else {
         let event = evt as MouseEvent;
-        const rect = this.drawer?.getBoundingClientRect();
         if (rect) {
           x = event.clientX - rect.left;
           y = event.clientY - rect.top;
@@ -150,18 +156,30 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     })
 
   }
+  
 
   onResponderGrant = (evt: TouchEvent<HTMLCanvasElement> | MouseEvent<HTMLCanvasElement>) => {
     this.dragging = true;
     this.onTouch(evt);
+    document.addEventListener('touchmove', this.preventDefault, { passive: false });
+    document.addEventListener('mousemove', this.preventDefault);
   }
 
   onResponderMove = (evt: TouchEvent<HTMLCanvasElement> | MouseEvent<HTMLCanvasElement>) => {
     if(this.dragging) this.onTouch(evt);
   }
 
+  handleTouchStart = (e: TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault(); // Previene il pull-to-refresh
+    this.onResponderGrant(e);
+  }
+
   onResponderRelease = () => {
     this.dragging = false;
+
+    document.removeEventListener('touchmove', this.preventDefault);
+    document.removeEventListener('mousemove', this.preventDefault);
+
     let strokes = this.state.previousStrokes
     if (this.state.currentPoints.points.length < 1) return
     var { height, width } = this.state;
@@ -226,13 +244,19 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
 
       <canvas
         ref={drawer => this.drawer = drawer}
-        onTouchStart={this.onResponderGrant}
+        onTouchStart={this.handleTouchStart}
         onTouchMove={this.onResponderMove}
         onTouchEnd={this.onResponderRelease}        
         onMouseDown={this.onResponderGrant} 
         onMouseMove={this.onResponderMove}
         onMouseUp={this.onResponderRelease}
-        style={{ flex: 1, backgroundColor: 'transparent', zIndex }}>
+        style={{ 
+          flex: 1,
+          backgroundColor: 'transparent', 
+          zIndex,
+          touchAction: 'none',
+          scrollBehavior: 'unset'
+          }}>
       </canvas> 
       <svg style={{ position: 'absolute', ...(rect ? { rect } : {left: px, top: py}), zIndex: zIndex - 1 }} height={height} width={width}>
           <g>
