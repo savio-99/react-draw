@@ -1,67 +1,50 @@
-# @savio99/react-draw
+# React + TypeScript + Vite
 
-> Simple responsive draw component to sign and draw in your own website
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
-[![NPM Version](https://img.shields.io/npm/v/@savio99/react-draw.svg?branch=master)](https://www.npmjs.com/package/@savio99/react-draw) [![License](https://img.shields.io/npm/l/@savio99/react-draw.svg)](https://github.com/savio-99/react-draw/blob/master/LICENSE)
+Currently, two official plugins are available:
 
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
 
-## Install
+## Expanding the ESLint configuration
 
-```bash
-npm install --save @savio99/react-draw
+If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
+
+- Configure the top-level `parserOptions` property like this:
+
+```js
+export default tseslint.config({
+  languageOptions: {
+    // other options...
+    parserOptions: {
+      project: ['./tsconfig.node.json', './tsconfig.app.json'],
+      tsconfigRootDir: import.meta.dirname,
+    },
+  },
+})
 ```
 
-## Usage
+- Replace `tseslint.configs.recommended` to `tseslint.configs.recommendedTypeChecked` or `tseslint.configs.strictTypeChecked`
+- Optionally add `...tseslint.configs.stylisticTypeChecked`
+- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and update the config:
 
-```tsx
-import React, { Component } from 'react'
+```js
+// eslint.config.js
+import react from 'eslint-plugin-react'
 
-import Whiteboard, { Stroke } from 'react-draw'
-import 'react-draw/dist/index.css'
-
-interface ExampleProps {
-  initialStrokes?: Stroke[]
-}
-
-export default function Example({
-  initialStrokes
-}: ExampleProps) {
-  const whiteboard = useRef<Whiteboard>(null);
-  const [strokes, setStrokes] = useState<Stroke[]>([]);
-
-  return <>
-    <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'center' }}>
-      <button onClick={() => whiteboard.current?.undo()}>Undo</button>
-      <button onClick={() => whiteboard.current?.clear()}>Clear</button>
-      <input type="color" onChange={(e) => whiteboard.current?.changeColor(e.target.value)} />
-      <input type="number" onChange={(e) => whiteboard.current?.changeStrokeWidth(parseInt(e.target.value))} defaultValue={4} />
-    </div>
-    <Whiteboard
-      containerStyle={{
-        style: {
-          border: '2px solid black',
-          borderRadius: 10,
-          margin: 100
-        }
-      }}
-      initialStrokes={initialStrokes}
-      onChangeStrokes={(strokes: Stroke[]) => setStrokes(strokes)}
-      ref={whiteboard} />
-    <Whiteboard
-      containerStyle={{
-        style: {
-          border: '2px solid black',
-          borderRadius: 10,
-          width: '50%',
-          height: '20%',
-          margin: 100
-        }
-      }}
-      strokes={strokes} />
-  </>
-}
+export default tseslint.config({
+  // Set the react version
+  settings: { react: { version: '18.3' } },
+  plugins: {
+    // Add the react plugin
+    react,
+  },
+  rules: {
+    // other rules...
+    // Enable its recommended rules
+    ...react.configs.recommended.rules,
+    ...react.configs['jsx-runtime'].rules,
+  },
+})
 ```
-
-## License
-
-MIT © [savio-99](https://github.com/savio-99)

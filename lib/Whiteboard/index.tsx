@@ -1,13 +1,14 @@
-import React, { TouchEvent, MouseEvent } from 'react'
-import Pen, { Stroke } from '../tools/pen'
-import Point from '../tools/point'
+import React from 'react'
+import type { TouchEvent, MouseEvent } from 'react'
+import Pen from '../Pen'
+import { Point, Stroke } from '../main'
 
 interface WhiteboardProps {
   enabled?: boolean,
   containerStyle?: React.DetailedHTMLProps<React.HTMLAttributes<HTMLDivElement>, HTMLDivElement>,
   strokeColor?: string,
   strokeWidth?: number,
-  onChangeStrokes?: Function,
+  onChangeStrokes?: (strokes?: Stroke[]) => void,
   strokes?: Stroke[],
   initialStrokes?: Stroke[],
   zIndex?: number
@@ -29,7 +30,7 @@ interface WhiteboardState {
 export default class Whiteboard extends React.Component<WhiteboardProps, WhiteboardState> {
 
   drawer: HTMLCanvasElement | null = null;
-  _panResponder: any;
+  //_panResponder: any;
 
   constructor(props: WhiteboardProps) {
     super(props)
@@ -68,7 +69,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
 
   undo = () => {
     if (this.state.currentPoints.points.length > 0 || this.state.previousStrokes.length < 1) return
-    let strokes = this.state.previousStrokes
+    const strokes = this.state.previousStrokes
     strokes.pop()
 
     this.state.pen.undoStroke()
@@ -122,17 +123,17 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
 
   dragging = false;
 
-  onTouch = (evt: any) => {
+  onTouch = (evt: TouchEvent | MouseEvent) => {
     if (this.props.enabled == false) return;
 
-    var x: number = 0;
-    var y: number = 0;
-    var time: number | undefined = undefined;
+    let x: number = 0;
+    let y: number = 0;
+    let time: number | undefined = undefined;
 
     const rect = this.drawer?.getBoundingClientRect();
-    if (evt.touches) {
-      let event = evt as TouchEvent
-      let touch: React.Touch | null = event.touches[0];
+    if (evt instanceof TouchEvent) {
+      const event = evt as TouchEvent
+      const touch: React.Touch | null = event.touches[0];
 
       if (!touch) return;
 
@@ -142,14 +143,14 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       }
       time = evt.timeStamp;
     } else {
-        let event = evt as MouseEvent;
+        const event = evt as MouseEvent;
         if (rect) {
           x = event.clientX - rect.left;
           y = event.clientY - rect.top;
         }
     } 
 
-    let newCurrentPoints = {...this.state.currentPoints, points: [...this.state.currentPoints.points, new Point(x, y, time)]}
+    const newCurrentPoints = {...this.state.currentPoints, points: [...this.state.currentPoints.points, new Point(x, y, time)]}
 
     this.setState({
       currentPoints: newCurrentPoints
@@ -180,11 +181,11 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     document.removeEventListener('touchmove', this.preventDefault);
     document.removeEventListener('mousemove', this.preventDefault);
 
-    let strokes = this.state.previousStrokes
+    const strokes = this.state.previousStrokes
     if (this.state.currentPoints.points.length < 1) return
-    var { height, width } = this.state;
+    const { height, width } = this.state;
 
-    var points = this.state.currentPoints
+    const points = this.state.currentPoints
     points.box = { height, width };
 
     this.state.pen.addStroke(this.state.currentPoints)
@@ -222,7 +223,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     window.removeEventListener('resize', this.updateSvgPosition);
   }
 
-  render() {
+  render(): React.ReactElement {
     const { height, width, previousStrokes, currentPoints, pen, px, py } = this.state;
     const zIndex = this.props.zIndex || 0;
     const props = (this.props.containerStyle || {}) as React.DetailedHTMLProps<React.HTMLAttributes<HTMLDivElement>, HTMLDivElement>;
@@ -243,7 +244,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       {...props}>
 
       <canvas
-        ref={drawer => this.drawer = drawer}
+        ref={drawer => { this.drawer = drawer }}
         onTouchStart={this.handleTouchStart}
         onTouchMove={this.onResponderMove}
         onTouchEnd={this.onResponderRelease}        
@@ -270,6 +271,6 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
               fill="none" />
           </g>
         </svg> 
-    </div>)
+    </div>) as React.ReactElement
   }
 }

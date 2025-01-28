@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "moduleResolution": "bundler",
+    "isolatedModules": true,
+    
+    /* Output Configuration */
+    "outDir": "./dist",
+    "rootDir": "./lib",
+    "declaration": true,
+    "declarationDir": "./dist",
+    "emitDeclarationOnly": false,
+    "sourceMap": true,
+    
+    /* Build Options */
+    "composite": true,
+    "skipLibCheck": true,
+    "strict": true,
+  },
+  "include": ["lib"],
+  "exclude": ["src", "node_modules", "dist"]
+}

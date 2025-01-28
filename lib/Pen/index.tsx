@@ -1,15 +1,6 @@
-import Point from "./point"
 import React from 'react'
-
-export interface Stroke {
-  box: {
-    width: number,
-    height: number,
-  },
-  points: Point[],
-  color: string,
-  width: number,
-}
+import Point from '../Point'
+import { Stroke } from '../main'
 
 const line = (pointA: Point, pointB: Point) => {
   const lengthX = pointB.x - pointA.x
@@ -65,8 +56,8 @@ export default class Pen {
     this._offsetY = options.y;
   }
 
-  toSvg(currentBox: { width: number, height: number }) {
-    return <g>
+  toSvg(currentBox: { width: number, height: number }): React.ReactElement {
+    return (<g>
       {this.strokes.map((e) => {
         const xProp = currentBox.width / e.box.width;
         const yProp = currentBox.height / e.box.height;
@@ -80,7 +71,7 @@ export default class Pen {
         strokeWidth={e.width * weightProp}
         fill="none" />)
       })}
-    </g>;
+    </g>) as React.ReactElement;
   }
 
   pointsToSvg(data: Stroke, currentBox: { width: number, height: number }) {
@@ -89,12 +80,12 @@ export default class Pen {
     const xProp = currentBox.width / data.box.width;
     const yProp = currentBox.height / data.box.height;
 
-    for (var i in data.points) {
+    for (const i in data.points) {
       points.push(new Point(data.points[i].x * xProp, data.points[i].y * yProp))
     }
 
     if (points.length > 0) {
-      var path = points.reduce((acc, point, i, a) => i === 0
+      const path = points.reduce((acc, point, i, a) => i === 0
         ? `M ${point.x},${point.y}`
         : `${acc} ${command(point, i, a)}`
         , '')

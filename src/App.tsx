@@ -1,6 +1,5 @@
-import React, { useRef, useState } from 'react'
-
-import Whiteboard, { Stroke } from '@savio99/react-draw'
+import { useRef, useState } from 'react'
+import Whiteboard, { Stroke } from '../';
 
 const App = () => {
   const whiteboard = useRef<Whiteboard>(null);
