@@ -1,6 +1,6 @@
 {
   "name": "@savio99/react-draw",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "type": "module",
   "description": "Simple responsive draw component to sign and draw in your own website",
   "author": "savio99",

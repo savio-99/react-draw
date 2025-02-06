@@ -20,7 +20,7 @@ const App = () => {
           margin: 100
         }
       }}
-      onChangeStrokes={(strokes: Stroke[]) => setStrokes(strokes)}
+      onChangeStrokes={(strokes?: Stroke[]) => setStrokes(strokes || [])}
       ref={whiteboard} />
     <Whiteboard
       containerStyle={{

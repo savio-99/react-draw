@@ -20,7 +20,7 @@ interface WhiteboardState {
   previousStrokes: Stroke[],
   pen: Pen,
   strokeWidth: number,
-  strokeColor: string, 
+  strokeColor: string,
   height: number,
   width: number,
   px: number,
@@ -60,7 +60,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     if (this.props.strokes !== undefined && this.props.strokes.length !== this.state.previousStrokes.length) {
       this.setState({ previousStrokes: this.props.strokes })
     }
-    
+
   }
 
   preventDefault = (e: Event) => {
@@ -131,33 +131,33 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     let time: number | undefined = undefined;
 
     const rect = this.drawer?.getBoundingClientRect();
-    if (evt instanceof TouchEvent) {
+    if (evt.nativeEvent instanceof TouchEvent) {
       const event = evt as TouchEvent
       const touch: React.Touch | null = event.touches[0];
 
       if (!touch) return;
 
-      if(rect) {
-      x = touch.clientX - rect.left;
-      y = touch.clientY - rect.top;
+      if (rect) {
+        x = touch.clientX - rect.left;
+        y = touch.clientY - rect.top;
       }
       time = evt.timeStamp;
     } else {
-        const event = evt as MouseEvent;
-        if (rect) {
-          x = event.clientX - rect.left;
-          y = event.clientY - rect.top;
-        }
-    } 
+      const event = evt as MouseEvent;
+      if (rect) {
+        x = event.clientX - rect.left;
+        y = event.clientY - rect.top;
+      }
+    }
 
-    const newCurrentPoints = {...this.state.currentPoints, points: [...this.state.currentPoints.points, new Point(x, y, time)]}
+    const newCurrentPoints = { ...this.state.currentPoints, points: [...this.state.currentPoints.points, new Point(x, y, time)] }
 
     this.setState({
       currentPoints: newCurrentPoints
     })
 
   }
-  
+
 
   onResponderGrant = (evt: TouchEvent<HTMLCanvasElement> | MouseEvent<HTMLCanvasElement>) => {
     this.dragging = true;
@@ -167,11 +167,11 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
   }
 
   onResponderMove = (evt: TouchEvent<HTMLCanvasElement> | MouseEvent<HTMLCanvasElement>) => {
-    if(this.dragging) this.onTouch(evt);
+    if (this.dragging) this.onTouch(evt);
   }
 
   handleTouchStart = (e: TouchEvent<HTMLCanvasElement>) => {
-    e.preventDefault(); // Previene il pull-to-refresh
+    //e.preventDefault();
     this.onResponderGrant(e);
   }
 
@@ -205,12 +205,12 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
 
   updateSvgPosition = () => {
     const { height, width, left, top } = this.drawer?.getBoundingClientRect() || { height: 0, width: 0, left: 0, top: 0 };
-    if(this.state.height != height || this.state.width != width || this.state.px != left || this.state.py != top) {
-      const currentPoints = {...this.state.currentPoints};
+    if (this.state.height != height || this.state.width != width || this.state.px != left || this.state.py != top) {
+      const currentPoints = { ...this.state.currentPoints };
       currentPoints.box = { height, width };
       this.setState({ height, width, px: left, py: top, currentPoints });
     }
-  } 
+  }
 
   componentDidMount() {
     window.addEventListener('scroll', this.updateSvgPosition);
@@ -229,8 +229,8 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     const props = (this.props.containerStyle || {}) as React.DetailedHTMLProps<React.HTMLAttributes<HTMLDivElement>, HTMLDivElement>;
     const rect = this.drawer?.getBoundingClientRect();
 
-    if(!props.style) props.style = {
-      flex: 1, 
+    if (!props.style) props.style = {
+      flex: 1,
       display: 'flex',
     }
     else props.style = {
@@ -247,30 +247,30 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
         ref={drawer => { this.drawer = drawer }}
         onTouchStart={this.handleTouchStart}
         onTouchMove={this.onResponderMove}
-        onTouchEnd={this.onResponderRelease}        
-        onMouseDown={this.onResponderGrant} 
+        onTouchEnd={this.onResponderRelease}
+        onMouseDown={this.onResponderGrant}
         onMouseMove={this.onResponderMove}
         onMouseUp={this.onResponderRelease}
-        style={{ 
+        style={{
           flex: 1,
-          backgroundColor: 'transparent', 
+          backgroundColor: 'transparent',
           zIndex,
           touchAction: 'none',
           scrollBehavior: 'unset'
-          }}>
-      </canvas> 
-      <svg style={{ position: 'absolute', ...(rect ? { rect } : {left: px, top: py}), zIndex: zIndex - 1 }} height={height} width={width}>
-          <g>
-            {
-              new Pen(previousStrokes).toSvg({ width, height})
-            }
-            <path
-              d={pen.pointsToSvg(currentPoints, { height, width })}
-              stroke={currentPoints.color}
-              strokeWidth={currentPoints.width}
-              fill="none" />
-          </g>
-        </svg> 
+        }}>
+      </canvas>
+      <svg style={{ position: 'absolute', ...(rect ? { rect } : { left: px, top: py }), zIndex: zIndex - 1 }} height={height} width={width}>
+        <g>
+          {
+            new Pen(previousStrokes).toSvg({ width, height })
+          }
+          <path
+            d={pen.pointsToSvg(currentPoints, { height, width })}
+            stroke={currentPoints.color}
+            strokeWidth={currentPoints.width}
+            fill="none" />
+        </g>
+      </svg>
     </div>) as React.ReactElement
   }
 }
