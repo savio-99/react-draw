@@ -39,5 +39,32 @@
   },
   "files": [
     "dist"
+  ],
+  "keywords": [
+    "react",
+    "whiteboard",
+    "drawing",
+    "canvas",
+    "sketch",
+    "freehand",
+    "pen",
+    "paint",
+    "annotation",
+    "signature",
+    "handwriting",
+    "doodle",
+    "svg",
+    "touch",
+    "stylus",
+    "pan",
+    "zoom",
+    "image",
+    "export",
+    "grid",
+    "toolbox",
+    "toolbar",
+    "fullscreen",
+    "react-component",
+    "typescript"
   ]
 }
