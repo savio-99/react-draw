@@ -57,28 +57,36 @@ export default class Pen {
   }
 
   toSvg(currentBox: { width: number, height: number }): React.ReactElement {
+    return this.toSvgWithScale(currentBox, 1);
+  }
+
+  toSvgWithScale(currentBox: { width: number, height: number }, scale: number = 1, useAbsoluteCoords: boolean = false): React.ReactElement {
     return (<g>
       {this.strokes.map((e) => {
-        const xProp = currentBox.width / e.box.width;
-        const yProp = currentBox.height / e.box.height;
+        // When useAbsoluteCoords is true, don't scale based on box proportions
+        // This is needed for autoFit mode where SVG transform handles scaling
+        const xProp = useAbsoluteCoords ? 1 : currentBox.width / e.box.width;
+        const yProp = useAbsoluteCoords ? 1 : currentBox.height / e.box.height;
 
         const weightProp = (xProp + yProp) / 2;
+        const adjustedWidth = (e.width * weightProp) / scale;
 
         return (<path
         key={e.points[0].time}
-        d={this.pointsToSvg(e, currentBox)}
+        d={this.pointsToSvg(e, currentBox, useAbsoluteCoords)}
         stroke={e.color}
-        strokeWidth={e.width * weightProp}
+        strokeWidth={adjustedWidth}
         fill="none" />)
       })}
     </g>) as React.ReactElement;
   }
 
-  pointsToSvg(data: Stroke, currentBox: { width: number, height: number }) {
+  pointsToSvg(data: Stroke, currentBox: { width: number, height: number }, useAbsoluteCoords: boolean = false) {
     const points = [];
     
-    const xProp = currentBox.width / data.box.width;
-    const yProp = currentBox.height / data.box.height;
+    // When useAbsoluteCoords is true, use original coordinates without scaling
+    const xProp = useAbsoluteCoords ? 1 : currentBox.width / data.box.width;
+    const yProp = useAbsoluteCoords ? 1 : currentBox.height / data.box.height;
 
     for (const i in data.points) {
       points.push(new Point(data.points[i].x * xProp, data.points[i].y * yProp))
