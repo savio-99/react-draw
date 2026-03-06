@@ -16,6 +16,9 @@ A powerful React whiteboard/drawing library with support for freehand drawing, i
 - 🖼️ **Export to Image** - Download whiteboard as PNG/JPEG with custom resolution
 - 🔄 **Auto-fit Preview** - Automatically scale content to fit container
 - ↩️ **Undo Support** - Undo last stroke
+- ✋ **Hand Mode** - Pan canvas by dragging without holding special keys
+- 🖊️ **Stylus Only Mode** - Ignore finger touch, use only stylus input (iOS/Android)
+- 📏 **Dimensions** - Add measurement annotations with customizable values
 
 ## Installation
 
@@ -26,6 +29,29 @@ yarn add @savio99/react-draw
 ```
 
 ## Quick Start
+
+### Option 1: Use DrawingBoard (Complete Solution)
+
+The easiest way to get started. `DrawingBoard` is a ready-to-use component with all features pre-configured:
+
+```tsx
+import { DrawingBoard } from '@savio99/react-draw';
+
+function App() {
+  return (
+    <div style={{ height: '100vh' }}>
+      <DrawingBoard 
+        showGrid={true}
+        onChangeStrokes={(strokes) => console.log('Strokes changed:', strokes.length)}
+      />
+    </div>
+  );
+}
+```
+
+### Option 2: Use Whiteboard (Custom Solution)
+
+For full control, use the `Whiteboard` component directly:
 
 ```tsx
 import { useRef, useState } from 'react';
@@ -49,6 +75,89 @@ function App() {
     />
   );
 }
+```
+
+## DrawingBoard Component
+
+A complete, ready-to-use drawing board with all features enabled. Includes a floating toolbox, mode switching, export/import, and more.
+
+### DrawingBoard Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `initialStrokes` | `Stroke[]` | `[]` | Initial strokes to display |
+| `initialImages` | `SketchImage[]` | `[]` | Initial images to display |
+| `initialDimensions` | `DimensionData[]` | `[]` | Initial dimensions to display |
+| `showGrid` | `boolean` | `true` | Whether to show the grid |
+| `gridSize` | `number` | `25` | Grid size in pixels |
+| `gridColor` | `string` | `'#e0e0e0'` | Grid line color |
+| `gridOpacity` | `number` | `0.8` | Grid line opacity (0-1) |
+| `minZoom` | `number` | `0.25` | Minimum zoom level |
+| `maxZoom` | `number` | `4` | Maximum zoom level |
+| `dimensionColor` | `string` | `'#ff5722'` | Color for dimension lines |
+| `defaultPenColor` | `string` | `'#000000'` | Default pen color |
+| `defaultPenWidth` | `number` | `4` | Default pen width |
+| `style` | `CSSProperties` | - | Container style |
+| `colorPalette` | `string[]` | (10 colors) | Color palette for the picker |
+| `toolboxPosition` | `{x, y}` | `{x:20, y:20}` | Toolbox initial position |
+| `toolboxOrientation` | `'horizontal' \| 'vertical'` | `'vertical'` | Toolbox orientation |
+| `additionalActions` | `ToolboxAction[]` | `[]` | Custom actions to add |
+| `hideActions` | `string[]` | `[]` | Hide default actions by id |
+| `labels` | `object` | (Italian) | Labels for UI elements (i18n) |
+| `onChangeStrokes` | `function` | - | Callback when strokes change |
+| `onChangeImages` | `function` | - | Callback when images change |
+| `onChangeDimensions` | `function` | - | Callback when dimensions change |
+| `onFullscreenChange` | `function` | - | Callback when fullscreen changes |
+
+### DrawingBoard Ref Methods
+
+```tsx
+const boardRef = useRef<DrawingBoardRef>(null);
+
+// Export data
+const data = boardRef.current?.exportData();
+const json = boardRef.current?.exportJSON();
+
+// Import data
+boardRef.current?.importData(data);
+boardRef.current?.importJSON(jsonString);
+
+// Download as image
+await boardRef.current?.downloadImage('my-drawing', { format: 'png', scale: 2 });
+
+// Other actions
+boardRef.current?.clear();
+boardRef.current?.undo();
+boardRef.current?.resetView();
+boardRef.current?.toggleFullscreen();
+
+// Access underlying Whiteboard
+const whiteboard = boardRef.current?.getWhiteboard();
+```
+
+### Customizing Labels (i18n)
+
+```tsx
+<DrawingBoard
+  labels={{
+    pen: 'Pen',
+    hand: 'Pan',
+    dimension: 'Measure',
+    select: 'Select',
+    penOnly: 'Stylus Only',
+    color: 'Pen Color',
+    strokeWidth: 'Pen Size',
+    addImage: 'Add Image',
+    undo: 'Undo',
+    clear: 'Clear All',
+    grid: 'Toggle Grid',
+    fullscreen: 'Fullscreen',
+    resetView: 'Reset View',
+    modeLabel: 'Mode',
+    penOnlyActive: 'Stylus Only active',
+    instructions: 'Ctrl + scroll to zoom, middle-click or two fingers to pan'
+  }}
+/>
 ```
 
 ## API Reference
@@ -79,6 +188,14 @@ function App() {
 | `autoFit` | `boolean` | `false` | Auto-fit content to container (useful for preview) |
 | `autoFitPadding` | `number` | `20` | Padding around content when auto-fitting |
 | `children` | `ReactNode` | - | Children (e.g., FloatingToolbox) |
+| `mode` | `'pen' \| 'hand' \| 'dimension' \| 'mouse'` | `'pen'` | Current interaction mode |
+| `onModeChange` | `(mode: WhiteboardMode) => void` | - | Callback when mode changes |
+| `penOnly` | `boolean` | `false` | Only accept stylus input, ignore finger touch (iOS/Android) |
+| `onPenOnlyChange` | `(penOnly: boolean) => void` | - | Callback when penOnly changes |
+| `dimensions` | `DimensionData[]` | - | Controlled dimensions array |
+| `initialDimensions` | `DimensionData[]` | `[]` | Initial dimensions (uncontrolled) |
+| `onChangeDimensions` | `(dimensions: DimensionData[]) => void` | - | Callback when dimensions change |
+| `dimensionColor` | `string` | `'#ff5722'` | Default color for new dimensions |
 
 ### Whiteboard Methods
 
@@ -111,6 +228,27 @@ whiteboard.current?.methodName();
 | `updateImage(imageId, updates)` | Update image properties |
 | `selectImage(imageId: string \| null)` | Select/deselect image |
 | `getImages()` | Get all images |
+
+#### Mode Methods
+
+| Method | Description |
+|--------|-------------|
+| `setMode(mode: WhiteboardMode)` | Set interaction mode ('pen', 'hand', 'dimension', 'mouse') |
+| `getMode()` | Get current interaction mode |
+| `setPenOnly(enabled: boolean)` | Enable/disable stylus-only mode |
+| `getPenOnly()` | Check if penOnly mode is enabled |
+
+#### Dimension Methods
+
+| Method | Description |
+|--------|-------------|
+| `addDimension(startX, startY, endX, endY, value?)` | Add dimension line |
+| `removeDimension(dimensionId: string)` | Remove dimension by ID |
+| `updateDimension(dimensionId, updates)` | Update dimension properties |
+| `selectDimension(dimensionId: string \| null)` | Select/deselect dimension |
+| `getDimensions()` | Get all dimensions |
+| `clearDimensions()` | Clear all dimensions |
+| `editDimensionValue(dimensionId: string)` | Open modal to edit dimension value |
 
 #### View Methods
 
@@ -159,6 +297,31 @@ interface SketchImage {
   width: number;
   height: number;
   rotation?: number;
+  opacity?: number;
+}
+```
+
+#### DimensionData
+
+```typescript
+interface DimensionData {
+  id: string;
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+  value: string;
+  color?: string;
+  fontSize?: number;
+  lineWidth?: number;
+}
+```
+
+#### WhiteboardMode
+
+```typescript
+type WhiteboardMode = 'pen' | 'hand' | 'dimension' | 'mouse';
+```
   opacity?: number;
 }
 ```
@@ -491,6 +654,134 @@ function App() {
 }
 ```
 
+### Mode Switching (Pen, Hand, Dimension, Mouse)
+
+```tsx
+import { useRef, useState } from 'react';
+import Whiteboard, { WhiteboardMode, FloatingToolbox, ToolboxAction } from '@savio99/react-draw';
+
+function App() {
+  const whiteboard = useRef<Whiteboard>(null);
+  const [mode, setMode] = useState<WhiteboardMode>('pen');
+  const [penOnly, setPenOnly] = useState(false);
+
+  const actions: ToolboxAction[] = [
+    {
+      id: 'pen',
+      label: 'Pen',
+      active: mode === 'pen',
+      onClick: () => {
+        setMode('pen');
+        whiteboard.current?.setMode('pen');
+      },
+      icon: <span>✏️</span>
+    },
+    {
+      id: 'hand',
+      label: 'Hand (Pan)',
+      active: mode === 'hand',
+      onClick: () => {
+        setMode('hand');
+        whiteboard.current?.setMode('hand');
+      },
+      icon: <span>✋</span>
+    },
+    {
+      id: 'dimension',
+      label: 'Dimension',
+      active: mode === 'dimension',
+      onClick: () => {
+        setMode('dimension');
+        whiteboard.current?.setMode('dimension');
+      },
+      icon: <span>📏</span>
+    },
+    {
+      id: 'mouse',
+      label: 'Select',
+      active: mode === 'mouse',
+      onClick: () => {
+        setMode('mouse');
+        whiteboard.current?.setMode('mouse');
+      },
+      icon: <span>🖱️</span>
+    },
+    {
+      id: 'penOnly',
+      label: 'Stylus Only',
+      active: penOnly,
+      onClick: () => {
+        const newValue = !penOnly;
+        setPenOnly(newValue);
+        whiteboard.current?.setPenOnly(newValue);
+      },
+      icon: <span>🖊️</span>
+    }
+  ];
+
+  return (
+    <Whiteboard
+      ref={whiteboard}
+      mode={mode}
+      penOnly={penOnly}
+      enablePan={true}
+      enableZoom={true}
+      containerStyle={{ style: { height: '100vh' } }}
+    >
+      <FloatingToolbox
+        actions={actions}
+        initialPosition={{ x: 20, y: 20 }}
+        orientation="vertical"
+      />
+    </Whiteboard>
+  );
+}
+```
+
+### Working with Dimensions
+
+```tsx
+import { useRef, useState } from 'react';
+import Whiteboard, { DimensionData } from '@savio99/react-draw';
+
+function App() {
+  const whiteboard = useRef<Whiteboard>(null);
+  const [dimensions, setDimensions] = useState<DimensionData[]>([]);
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <button onClick={() => whiteboard.current?.setMode('dimension')}>
+          Add Dimension
+        </button>
+        <button onClick={() => whiteboard.current?.setMode('mouse')}>
+          Select Mode
+        </button>
+        <button onClick={() => whiteboard.current?.clearDimensions()}>
+          Clear Dimensions
+        </button>
+      </div>
+      <Whiteboard
+        ref={whiteboard}
+        enablePan={true}
+        enableZoom={true}
+        onChangeDimensions={setDimensions}
+        dimensionColor="#ff5722"
+        containerStyle={{ style: { height: '500px', border: '1px solid #ccc' } }}
+      />
+      <div>
+        <h4>Dimensions:</h4>
+        <ul>
+          {dimensions.map(d => (
+            <li key={d.id}>{d.value || 'No value'}</li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+```
+
 ## FloatingToolbox
 
 A draggable toolbar component that can be placed inside the Whiteboard.
@@ -539,11 +830,27 @@ interface ToolboxAction {
 | Action | Control |
 |--------|---------|
 | Zoom | `Ctrl + Scroll` or pinch gesture |
-| Pan | `Middle mouse button` drag or two-finger touch |
-| Draw | Left mouse button or single-finger touch |
-| Select Image | Click image (when `enabled={false}`) |
+| Pan | `Middle mouse button` drag, two-finger touch, or Hand mode |
+| Draw | Left mouse button or single-finger touch (in Pen mode) |
+| Select Image | Click image (in Mouse mode or when `enabled={false}`) |
 | Move Image | Drag selected image |
 | Resize Image | Drag corner handles |
+| Add Dimension | Click and drag (in Dimension mode) |
+| Edit Dimension | Double-click dimension (in Mouse mode) |
+| Select Dimension | Click dimension (in Mouse mode) |
+
+### Interaction Modes
+
+| Mode | Description |
+|------|-------------|
+| `pen` | Default drawing mode. Left-click/touch draws strokes |
+| `hand` | Pan mode. Left-click/touch pans the canvas |
+| `dimension` | Dimension mode. Click and drag to add measurement lines |
+| `mouse` | Selection mode. Click to select images or dimensions |
+
+### Stylus Only Mode (penOnly)
+
+When `penOnly` is enabled, the whiteboard ignores regular finger touches and only responds to stylus/pen input. This is useful for devices like iPad Pro with Apple Pencil or Android tablets with stylus support. When a finger touch is detected in penOnly mode, it will pan the canvas instead of drawing.
 
 ## License
 

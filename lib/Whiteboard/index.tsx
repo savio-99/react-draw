@@ -4,11 +4,15 @@ import Pen from '../Pen'
 import { Point, Stroke } from '../main'
 import Grid from '../Grid'
 import { SketchImage, createImage, loadImageDimensions } from '../Image'
+import Dimension, { DimensionModal, DimensionData, createDimension } from '../Dimension'
+
+export type WhiteboardMode = 'pen' | 'hand' | 'dimension' | 'mouse';
 
 export interface WhiteboardData {
   version: string;
   strokes: Stroke[];
   images: SketchImage[];
+  dimensions?: DimensionData[];
   viewState?: {
     panX: number;
     panY: number;
@@ -39,7 +43,16 @@ interface WhiteboardProps {
   onFullscreenChange?: (isFullscreen: boolean) => void,
   autoFit?: boolean,
   autoFitPadding?: number,
-  children?: React.ReactNode
+  children?: React.ReactNode,
+  // New props
+  mode?: WhiteboardMode,
+  onModeChange?: (mode: WhiteboardMode) => void,
+  penOnly?: boolean,
+  onPenOnlyChange?: (penOnly: boolean) => void,
+  dimensions?: DimensionData[],
+  initialDimensions?: DimensionData[],
+  onChangeDimensions?: (dimensions: DimensionData[]) => void,
+  dimensionColor?: string
 }
 
 interface WhiteboardState {
@@ -67,7 +80,24 @@ interface WhiteboardState {
   imageStartPos: { x: number, y: number } | null,
   imageDragStart: { x: number, y: number } | null,
   imageStartSize: { width: number, height: number } | null,
-  isFullscreen: boolean
+  isFullscreen: boolean,
+  // New state for modes and dimensions
+  currentMode: WhiteboardMode,
+  penOnly: boolean,
+  dimensions: DimensionData[],
+  selectedDimensionId: string | null,
+  selectedStrokeIndex: number | null,
+  isDimensionDrawing: boolean,
+  dimensionStart: { x: number, y: number } | null,
+  tempDimension: DimensionData | null,
+  showDimensionModal: boolean,
+  pendingDimension: DimensionData | null,
+  // Dimension manipulation state
+  isDraggingDimension: boolean,
+  isResizingDimension: boolean,
+  dimensionResizeHandle: 'start' | 'end' | null,
+  dimensionStartData: DimensionData | null,
+  dimensionDragStart: { x: number, y: number } | null
 }
 
 export default class Whiteboard extends React.Component<WhiteboardProps, WhiteboardState> {
@@ -86,7 +116,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
         box: { height: 0, width: 0 },
         points: []
       },
-      previousStrokes: this.props.initialStrokes || [],
+      previousStrokes: this.props.strokes || this.props.initialStrokes || [],
       pen: new Pen(),
       strokeWidth: props.strokeWidth || 4,
       strokeColor: props.strokeColor || '#000000',
@@ -100,7 +130,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       isPanning: false,
       lastPanPoint: null,
       lastTouchDistance: null,
-      sketchImages: this.props.initialImages || [],
+      sketchImages: this.props.images || this.props.initialImages || [],
       selectedImageId: null,
       isDraggingImage: false,
       isResizingImage: false,
@@ -108,15 +138,35 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       imageStartPos: null,
       imageDragStart: null,
       imageStartSize: null,
-      isFullscreen: false
+      isFullscreen: false,
+      // New state for modes and dimensions
+      currentMode: props.mode || 'pen',
+      penOnly: props.penOnly || false,
+      dimensions: props.dimensions || props.initialDimensions || [],
+      selectedDimensionId: null,
+      selectedStrokeIndex: null,
+      isDimensionDrawing: false,
+      dimensionStart: null,
+      tempDimension: null,
+      showDimensionModal: false,
+      pendingDimension: null,
+      // Dimension manipulation state
+      isDraggingDimension: false,
+      isResizingDimension: false,
+      dimensionResizeHandle: null,
+      dimensionStartData: null,
+      dimensionDragStart: null
     }
   }
 
   componentDidUpdate(prevProps: WhiteboardProps) {
     const strokesChanged = this.props.strokes !== undefined && this.props.strokes !== prevProps.strokes;
     const imagesChanged = this.props.images !== undefined && this.props.images !== prevProps.images;
+    const dimensionsChanged = this.props.dimensions !== undefined && this.props.dimensions !== prevProps.dimensions;
+    const modeChanged = this.props.mode !== undefined && this.props.mode !== prevProps.mode;
+    const penOnlyChanged = this.props.penOnly !== undefined && this.props.penOnly !== prevProps.penOnly;
     
-    if (strokesChanged || imagesChanged) {
+    if (strokesChanged || imagesChanged || dimensionsChanged || modeChanged || penOnlyChanged) {
       // Build state update with both strokes and images together to avoid race conditions
       const stateUpdate: Partial<WhiteboardState> = {};
       
@@ -125,6 +175,15 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       }
       if (imagesChanged) {
         stateUpdate.sketchImages = this.props.images;
+      }
+      if (dimensionsChanged) {
+        stateUpdate.dimensions = this.props.dimensions;
+      }
+      if (modeChanged) {
+        stateUpdate.currentMode = this.props.mode;
+      }
+      if (penOnlyChanged) {
+        stateUpdate.penOnly = this.props.penOnly;
       }
       
       this.setState(stateUpdate as WhiteboardState, () => {
@@ -322,6 +381,239 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     return this.state.sketchImages;
   }
 
+  // Mode methods
+  setMode = (mode: WhiteboardMode) => {
+    this.setState({ currentMode: mode, selectedDimensionId: null, selectedStrokeIndex: null, selectedImageId: null });
+    this.props.onModeChange?.(mode);
+  }
+
+  getMode = (): WhiteboardMode => {
+    return this.state.currentMode;
+  }
+
+  // Pen only mode methods (for iOS/Android stylus support)
+  setPenOnly = (enabled: boolean) => {
+    this.setState({ penOnly: enabled });
+    this.props.onPenOnlyChange?.(enabled);
+  }
+
+  getPenOnly = (): boolean => {
+    return this.state.penOnly;
+  }
+
+  // Dimension methods
+  addDimension = (startX: number, startY: number, endX: number, endY: number, value: string = '') => {
+    const newDimension = createDimension(startX, startY, endX, endY, value, this.props.dimensionColor);
+    const newDimensions = [...this.state.dimensions, newDimension];
+    this.setState({ dimensions: newDimensions });
+    this.props.onChangeDimensions?.(newDimensions);
+    return newDimension;
+  }
+
+  removeDimension = (dimensionId: string) => {
+    const newDimensions = this.state.dimensions.filter(d => d.id !== dimensionId);
+    this.setState({ dimensions: newDimensions, selectedDimensionId: null });
+    this.props.onChangeDimensions?.(newDimensions);
+  }
+
+  updateDimension = (dimensionId: string, updates: Partial<DimensionData>) => {
+    const newDimensions = this.state.dimensions.map(d =>
+      d.id === dimensionId ? { ...d, ...updates } : d
+    );
+    this.setState({ dimensions: newDimensions });
+    this.props.onChangeDimensions?.(newDimensions);
+  }
+
+  selectDimension = (dimensionId: string | null) => {
+    this.setState({ selectedDimensionId: dimensionId });
+  }
+
+  getDimensions = (): DimensionData[] => {
+    return this.state.dimensions;
+  }
+
+  clearDimensions = () => {
+    this.setState({ dimensions: [], selectedDimensionId: null });
+    this.props.onChangeDimensions?.([]);
+  }
+
+  // Handle dimension modal
+  onDimensionModalConfirm = (value: string) => {
+    const { pendingDimension } = this.state;
+    if (pendingDimension) {
+      const completedDimension = { ...pendingDimension, value };
+      const newDimensions = [...this.state.dimensions, completedDimension];
+      this.setState({ 
+        dimensions: newDimensions,
+        showDimensionModal: false,
+        pendingDimension: null,
+        tempDimension: null
+      });
+      this.props.onChangeDimensions?.(newDimensions);
+    }
+  }
+
+  onDimensionModalCancel = () => {
+    this.setState({ 
+      showDimensionModal: false,
+      pendingDimension: null,
+      tempDimension: null
+    });
+  }
+
+  // Edit existing dimension value
+  editDimensionValue = (dimensionId: string) => {
+    const dimension = this.state.dimensions.find(d => d.id === dimensionId);
+    if (dimension) {
+      this.setState({
+        showDimensionModal: true,
+        pendingDimension: dimension,
+        selectedDimensionId: dimensionId
+      });
+    }
+  }
+
+  onDimensionEditConfirm = (value: string) => {
+    const { pendingDimension } = this.state;
+    if (pendingDimension) {
+      this.updateDimension(pendingDimension.id, { value });
+      this.setState({ 
+        showDimensionModal: false,
+        pendingDimension: null
+      });
+    }
+  }
+
+  // Dimension drag handlers
+  onDimensionMouseDown = (dimensionId: string, clientX: number, clientY: number) => {
+    if (this.state.currentMode !== 'mouse') return;
+    
+    const dimension = this.state.dimensions.find(d => d.id === dimensionId);
+    if (!dimension) return;
+    
+    const coords = this.screenToCanvas(clientX, clientY);
+    
+    this.setState({
+      selectedDimensionId: dimensionId,
+      isDraggingDimension: true,
+      dimensionStartData: { ...dimension },
+      dimensionDragStart: coords
+    });
+  }
+
+  onDimensionHandleMouseDown = (dimensionId: string, handle: 'start' | 'end', clientX: number, clientY: number) => {
+    if (this.state.currentMode !== 'mouse') return;
+    
+    const dimension = this.state.dimensions.find(d => d.id === dimensionId);
+    if (!dimension) return;
+    
+    const coords = this.screenToCanvas(clientX, clientY);
+    
+    this.setState({
+      selectedDimensionId: dimensionId,
+      isResizingDimension: true,
+      dimensionResizeHandle: handle,
+      dimensionStartData: { ...dimension },
+      dimensionDragStart: coords
+    });
+  }
+
+  handleDimensionManipulation = (clientX: number, clientY: number) => {
+    const {
+      selectedDimensionId, isDraggingDimension, isResizingDimension,
+      dimensionResizeHandle, dimensionStartData, dimensionDragStart, dimensions
+    } = this.state;
+    
+    if (!selectedDimensionId || !dimensionDragStart || !dimensionStartData) return;
+    
+    const coords = this.screenToCanvas(clientX, clientY);
+    const dx = coords.x - dimensionDragStart.x;
+    const dy = coords.y - dimensionDragStart.y;
+    
+    if (isDraggingDimension) {
+      // Move entire dimension
+      const newDimensions = dimensions.map(dim => {
+        if (dim.id === selectedDimensionId) {
+          return {
+            ...dim,
+            startX: dimensionStartData.startX + dx,
+            startY: dimensionStartData.startY + dy,
+            endX: dimensionStartData.endX + dx,
+            endY: dimensionStartData.endY + dy
+          };
+        }
+        return dim;
+      });
+      this.setState({ dimensions: newDimensions });
+    } else if (isResizingDimension && dimensionResizeHandle) {
+      // Move single endpoint
+      const newDimensions = dimensions.map(dim => {
+        if (dim.id === selectedDimensionId) {
+          if (dimensionResizeHandle === 'start') {
+            return {
+              ...dim,
+              startX: coords.x,
+              startY: coords.y
+            };
+          } else {
+            return {
+              ...dim,
+              endX: coords.x,
+              endY: coords.y
+            };
+          }
+        }
+        return dim;
+      });
+      this.setState({ dimensions: newDimensions });
+    }
+  }
+
+  endDimensionManipulation = () => {
+    if (this.state.isDraggingDimension || this.state.isResizingDimension) {
+      this.props.onChangeDimensions?.(this.state.dimensions);
+    }
+    this.setState({
+      isDraggingDimension: false,
+      isResizingDimension: false,
+      dimensionResizeHandle: null,
+      dimensionStartData: null,
+      dimensionDragStart: null
+    });
+  }
+
+  // Delete selected dimension
+  deleteSelectedDimension = () => {
+    const { selectedDimensionId } = this.state;
+    if (selectedDimensionId) {
+      this.removeDimension(selectedDimensionId);
+    }
+  }
+
+  // Delete selected image
+  deleteSelectedImage = () => {
+    const { selectedImageId } = this.state;
+    if (selectedImageId) {
+      this.removeImage(selectedImageId);
+    }
+  }
+
+  // Find image at a point (for selection)
+  findImageAtPoint = (x: number, y: number): SketchImage | null => {
+    const { sketchImages } = this.state;
+    
+    // Search from end to start (topmost images first)
+    for (let i = sketchImages.length - 1; i >= 0; i--) {
+      const img = sketchImages[i];
+      if (x >= img.x && x <= img.x + img.width && 
+          y >= img.y && y <= img.y + img.height) {
+        return img;
+      }
+    }
+    
+    return null;
+  }
+
   setPan = (x: number, y: number) => {
     this.setState({ panX: x, panY: y });
   }
@@ -337,9 +629,9 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
   }
 
   getBounds = (): { minX: number; minY: number; maxX: number; maxY: number } | null => {
-    const { previousStrokes, sketchImages } = this.state;
+    const { previousStrokes, sketchImages, dimensions } = this.state;
     
-    if (previousStrokes.length === 0 && sketchImages.length === 0) {
+    if (previousStrokes.length === 0 && sketchImages.length === 0 && dimensions.length === 0) {
       return null;
     }
 
@@ -362,6 +654,15 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       minY = Math.min(minY, img.y);
       maxX = Math.max(maxX, img.x + img.width);
       maxY = Math.max(maxY, img.y + img.height);
+    });
+
+    // Calculate bounds from dimensions (with some padding for arrows and text)
+    dimensions.forEach(dim => {
+      const padding = 20; // For arrows and extension lines
+      minX = Math.min(minX, Math.min(dim.startX, dim.endX) - padding);
+      minY = Math.min(minY, Math.min(dim.startY, dim.endY) - padding);
+      maxX = Math.max(maxX, Math.max(dim.startX, dim.endX) + padding);
+      maxY = Math.max(maxY, Math.max(dim.startY, dim.endY) + padding);
     });
 
     if (minX === Infinity) return null;
@@ -497,6 +798,120 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       const lastPoint = points[points.length - 1];
       ctx.lineTo(lastPoint.x, lastPoint.y);
       ctx.stroke();
+    });
+
+    // Render dimensions
+    this.state.dimensions.forEach(dim => {
+      const { startX, startY, endX, endY, value, color = '#ff5722', fontSize = 14, lineWidth = 2 } = dim;
+      
+      // Calculate angle
+      const dx = endX - startX;
+      const dy = endY - startY;
+      const angle = Math.atan2(dy, dx);
+      
+      // Arrow head size
+      const arrowSize = 10;
+      
+      // Draw main line
+      ctx.beginPath();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = lineWidth;
+      ctx.lineCap = 'round';
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(endX, endY);
+      ctx.stroke();
+      
+      // Draw arrow at start
+      ctx.beginPath();
+      ctx.fillStyle = color;
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(
+        startX + arrowSize * Math.cos(angle + Math.PI / 6),
+        startY + arrowSize * Math.sin(angle + Math.PI / 6)
+      );
+      ctx.lineTo(
+        startX + arrowSize * Math.cos(angle - Math.PI / 6),
+        startY + arrowSize * Math.sin(angle - Math.PI / 6)
+      );
+      ctx.closePath();
+      ctx.fill();
+      
+      // Draw arrow at end
+      ctx.beginPath();
+      ctx.moveTo(endX, endY);
+      ctx.lineTo(
+        endX - arrowSize * Math.cos(angle + Math.PI / 6),
+        endY - arrowSize * Math.sin(angle + Math.PI / 6)
+      );
+      ctx.lineTo(
+        endX - arrowSize * Math.cos(angle - Math.PI / 6),
+        endY - arrowSize * Math.sin(angle - Math.PI / 6)
+      );
+      ctx.closePath();
+      ctx.fill();
+      
+      // Extension lines (perpendicular)
+      const extLength = 15;
+      const perpAngle = angle + Math.PI / 2;
+      
+      ctx.beginPath();
+      ctx.lineWidth = lineWidth * 0.7;
+      // Extension at start
+      ctx.moveTo(
+        startX + extLength * Math.cos(perpAngle),
+        startY + extLength * Math.sin(perpAngle)
+      );
+      ctx.lineTo(
+        startX - extLength * Math.cos(perpAngle),
+        startY - extLength * Math.sin(perpAngle)
+      );
+      ctx.stroke();
+      
+      // Extension at end
+      ctx.beginPath();
+      ctx.moveTo(
+        endX + extLength * Math.cos(perpAngle),
+        endY + extLength * Math.sin(perpAngle)
+      );
+      ctx.lineTo(
+        endX - extLength * Math.cos(perpAngle),
+        endY - extLength * Math.sin(perpAngle)
+      );
+      ctx.stroke();
+      
+      // Draw value label
+      if (value) {
+        const midpointX = (startX + endX) / 2;
+        const midpointY = (startY + endY) / 2;
+        
+        // Calculate text angle (keep it readable)
+        let textAngle = (angle * 180) / Math.PI;
+        if (textAngle > 90 || textAngle < -90) {
+          textAngle += 180;
+        }
+        const textAngleRad = (textAngle * Math.PI) / 180;
+        
+        ctx.save();
+        ctx.translate(midpointX, midpointY);
+        ctx.rotate(textAngleRad);
+        
+        // Draw background
+        ctx.font = `bold ${fontSize}px sans-serif`;
+        const textMetrics = ctx.measureText(value);
+        const textWidth = textMetrics.width;
+        const textHeight = fontSize;
+        
+        ctx.fillStyle = 'white';
+        ctx.fillRect(-textWidth / 2 - 4, -textHeight / 2 - 2, textWidth + 8, textHeight + 4);
+        
+        // Draw text
+        ctx.fillStyle = color;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(value, 0, 0);
+        
+        ctx.restore();
+      }
     });
 
     const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
@@ -647,11 +1062,15 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
         points: []
       },
       tracker: 0,
-      sketchImages: []
+      sketchImages: [],
+      dimensions: [],
+      selectedDimensionId: null,
+      selectedStrokeIndex: null
     })
     this.state.pen.clear()
     this._onChangeStrokes([])
     this.props.onChangeImages?.([])
+    this.props.onChangeDimensions?.([])
   }
 
   clearStrokes = () => {
@@ -665,6 +1084,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
         points: []
       },
       tracker: 0,
+      selectedStrokeIndex: null
     })
     this.state.pen.clear()
     this._onChangeStrokes([])
@@ -691,6 +1111,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
   onTouch = (evt: TouchEvent | MouseEvent) => {
     if (this.props.enabled == false) return;
     if (this.state.isPanning) return;
+    if (this.state.currentMode !== 'pen') return;
 
     let x: number = 0;
     let y: number = 0;
@@ -704,6 +1125,15 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       
       const touch: React.Touch | null = event.touches[0];
       if (!touch) return;
+
+      // penOnly mode: only allow stylus input, ignore finger touches
+      if (this.state.penOnly) {
+        const nativeTouch = event.nativeEvent.touches[0] as Touch & { touchType?: string; radiusX?: number; radiusY?: number };
+        // Check for stylus: touchType === 'stylus' (iOS) or very small radius (Android)
+        const isStylus = nativeTouch.touchType === 'stylus' || 
+                        (nativeTouch.radiusX !== undefined && nativeTouch.radiusX < 2 && nativeTouch.radiusY !== undefined && nativeTouch.radiusY < 2);
+        if (!isStylus) return;
+      }
 
       const coords = this.screenToCanvas(touch.clientX, touch.clientY);
       x = coords.x;
@@ -733,6 +1163,8 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
   }
 
   onResponderMove = (evt: TouchEvent<HTMLCanvasElement> | MouseEvent<HTMLCanvasElement>) => {
+    const { currentMode } = this.state;
+    
     // Handle two-finger pan/zoom
     if (evt.nativeEvent instanceof TouchEvent) {
       const touchEvent = evt as TouchEvent<HTMLCanvasElement>;
@@ -767,19 +1199,45 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
         }
         return;
       }
+      
+      // Handle single touch pan in hand mode or penOnly non-stylus
+      if (this.state.isPanning && this.state.lastPanPoint && touchEvent.touches.length === 1) {
+        const touch = touchEvent.touches[0];
+        const dx = touch.clientX - this.state.lastPanPoint.x;
+        const dy = touch.clientY - this.state.lastPanPoint.y;
+        this.setState({
+          panX: this.state.panX + dx,
+          panY: this.state.panY + dy,
+          lastPanPoint: { x: touch.clientX, y: touch.clientY }
+        });
+        return;
+      }
+      
+      // Handle dimension drawing on touch
+      if (this.state.isDimensionDrawing && this.state.tempDimension && touchEvent.touches.length === 1) {
+        const touch = touchEvent.touches[0];
+        const coords = this.screenToCanvas(touch.clientX, touch.clientY);
+        this.setState({
+          tempDimension: {
+            ...this.state.tempDimension,
+            endX: coords.x,
+            endY: coords.y
+          }
+        });
+        return;
+      }
     }
     
-    if (this.dragging && !this.state.isPanning) this.onTouch(evt);
+    if (this.dragging && !this.state.isPanning && currentMode === 'pen') {
+      this.onTouch(evt);
+    }
   }
 
   // Handle middle mouse button pan
   onMouseDown = (evt: MouseEvent<HTMLCanvasElement>) => {
-    // Click on canvas deselects image if nothing else is happening
-    if (this.state.selectedImageId && !this.state.isDraggingImage && !this.state.isResizingImage) {
-      this.deselectImage();
-    }
+    const { currentMode } = this.state;
     
-    // Middle mouse button for pan
+    // Middle mouse button for pan (always works)
     if (evt.button === 1 && this.props.enablePan) {
       evt.preventDefault();
       this.setState({
@@ -788,17 +1246,192 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       });
       return;
     }
-    this.onResponderGrant(evt);
+    
+    // Handle hand mode - left click pans
+    if (currentMode === 'hand' && evt.button === 0) {
+      evt.preventDefault();
+      this.setState({
+        isPanning: true,
+        lastPanPoint: { x: evt.clientX, y: evt.clientY }
+      });
+      return;
+    }
+    
+    // Handle dimension mode - start drawing dimension
+    if (currentMode === 'dimension' && evt.button === 0) {
+      const coords = this.screenToCanvas(evt.clientX, evt.clientY);
+      const tempDim = createDimension(coords.x, coords.y, coords.x, coords.y, '', this.props.dimensionColor);
+      this.setState({
+        isDimensionDrawing: true,
+        dimensionStart: coords,
+        tempDimension: tempDim
+      });
+      return;
+    }
+    
+    // Handle mouse mode - for selecting images/dimensions/strokes
+    if (currentMode === 'mouse' && evt.button === 0) {
+      const coords = this.screenToCanvas(evt.clientX, evt.clientY);
+      
+      // Check if clicking on an image (topmost first)
+      const clickedImage = this.findImageAtPoint(coords.x, coords.y);
+      if (clickedImage) {
+        this.setState({ 
+          selectedImageId: clickedImage.id, 
+          selectedDimensionId: null, 
+          selectedStrokeIndex: null,
+          isDraggingImage: true,
+          imageStartPos: { x: clickedImage.x, y: clickedImage.y },
+          imageDragStart: coords
+        });
+        return;
+      }
+      
+      // Check if clicking on a dimension
+      const clickedDimension = this.findDimensionAtPoint(coords.x, coords.y);
+      if (clickedDimension) {
+        this.setState({ 
+          selectedDimensionId: clickedDimension.id, 
+          selectedStrokeIndex: null, 
+          selectedImageId: null 
+        });
+        return;
+      }
+      
+      // Check if clicking on a stroke
+      const clickedStrokeIndex = this.findStrokeAtPoint(coords.x, coords.y);
+      if (clickedStrokeIndex >= 0) {
+        this.setState({ 
+          selectedStrokeIndex: clickedStrokeIndex, 
+          selectedDimensionId: null, 
+          selectedImageId: null 
+        });
+        return;
+      }
+      
+      // Clicked on empty space - deselect all
+      this.setState({ selectedDimensionId: null, selectedStrokeIndex: null, selectedImageId: null });
+      return;
+    }
+    
+    // Default: pen mode
+    if (currentMode === 'pen') {
+      this.onResponderGrant(evt);
+    }
+  }
+
+  // Find dimension at a point (for selection)
+  findDimensionAtPoint = (x: number, y: number): DimensionData | null => {
+    const threshold = 10 / this.state.scale;
+    
+    for (const dim of this.state.dimensions) {
+      // Calculate distance from point to line segment
+      const dx = dim.endX - dim.startX;
+      const dy = dim.endY - dim.startY;
+      const lengthSquared = dx * dx + dy * dy;
+      
+      if (lengthSquared === 0) {
+        // Start and end are the same point
+        const dist = Math.sqrt((x - dim.startX) ** 2 + (y - dim.startY) ** 2);
+        if (dist <= threshold) return dim;
+        continue;
+      }
+      
+      // Calculate projection
+      let t = ((x - dim.startX) * dx + (y - dim.startY) * dy) / lengthSquared;
+      t = Math.max(0, Math.min(1, t));
+      
+      const projX = dim.startX + t * dx;
+      const projY = dim.startY + t * dy;
+      const dist = Math.sqrt((x - projX) ** 2 + (y - projY) ** 2);
+      
+      if (dist <= threshold) return dim;
+    }
+    
+    return null;
+  }
+
+  // Find stroke at a point (for selection)
+  findStrokeAtPoint = (x: number, y: number): number => {
+    const { previousStrokes, scale } = this.state;
+    
+    // Search from end to start (top strokes first)
+    for (let strokeIndex = previousStrokes.length - 1; strokeIndex >= 0; strokeIndex--) {
+      const stroke = previousStrokes[strokeIndex];
+      const threshold = Math.max(stroke.width / 2, 10) / scale;
+      
+      for (let i = 0; i < stroke.points.length - 1; i++) {
+        const p1 = stroke.points[i];
+        const p2 = stroke.points[i + 1];
+        
+        // Calculate distance from point to line segment
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const lengthSquared = dx * dx + dy * dy;
+        
+        if (lengthSquared === 0) {
+          const dist = Math.sqrt((x - p1.x) ** 2 + (y - p1.y) ** 2);
+          if (dist <= threshold) return strokeIndex;
+          continue;
+        }
+        
+        let t = ((x - p1.x) * dx + (y - p1.y) * dy) / lengthSquared;
+        t = Math.max(0, Math.min(1, t));
+        
+        const projX = p1.x + t * dx;
+        const projY = p1.y + t * dy;
+        const dist = Math.sqrt((x - projX) ** 2 + (y - projY) ** 2);
+        
+        if (dist <= threshold) return strokeIndex;
+      }
+      
+      // Also check single-point strokes
+      if (stroke.points.length === 1) {
+        const p = stroke.points[0];
+        const dist = Math.sqrt((x - p.x) ** 2 + (y - p.y) ** 2);
+        if (dist <= threshold) return strokeIndex;
+      }
+    }
+    
+    return -1;
+  }
+
+  // Delete selected stroke
+  deleteSelectedStroke = () => {
+    const { selectedStrokeIndex, previousStrokes } = this.state;
+    if (selectedStrokeIndex === null || selectedStrokeIndex < 0) return;
+    
+    const newStrokes = [...previousStrokes];
+    newStrokes.splice(selectedStrokeIndex, 1);
+    
+    // Update pen strokes
+    this.state.pen.clear();
+    newStrokes.forEach(stroke => this.state.pen.addStroke(stroke));
+    
+    this.setState({ 
+      previousStrokes: newStrokes, 
+      selectedStrokeIndex: null,
+      tracker: this.state.tracker - 1
+    });
+    this._onChangeStrokes(newStrokes);
   }
 
   onMouseMove = (evt: MouseEvent<HTMLCanvasElement>) => {
+    const { currentMode } = this.state;
+    
     // Handle image manipulation
     if (this.state.isDraggingImage || this.state.isResizingImage) {
       this.handleImageManipulation(evt.clientX, evt.clientY);
       return;
     }
     
-    // Handle middle button pan
+    // Handle dimension manipulation
+    if (this.state.isDraggingDimension || this.state.isResizingDimension) {
+      this.handleDimensionManipulation(evt.clientX, evt.clientY);
+      return;
+    }
+    
+    // Handle middle button pan or hand mode pan
     if (this.state.isPanning && this.state.lastPanPoint) {
       const dx = evt.clientX - this.state.lastPanPoint.x;
       const dy = evt.clientY - this.state.lastPanPoint.y;
@@ -809,7 +1442,24 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       });
       return;
     }
-    this.onResponderMove(evt);
+    
+    // Handle dimension drawing
+    if (this.state.isDimensionDrawing && this.state.tempDimension) {
+      const coords = this.screenToCanvas(evt.clientX, evt.clientY);
+      this.setState({
+        tempDimension: {
+          ...this.state.tempDimension,
+          endX: coords.x,
+          endY: coords.y
+        }
+      });
+      return;
+    }
+    
+    // Default: pen mode or other
+    if (currentMode === 'pen') {
+      this.onResponderMove(evt);
+    }
   }
 
   onMouseUp = () => {
@@ -817,10 +1467,55 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       this.endImageManipulation();
       return;
     }
+    
+    // End dimension manipulation
+    if (this.state.isDraggingDimension || this.state.isResizingDimension) {
+      this.endDimensionManipulation();
+      return;
+    }
+    
+    // End dimension drawing
+    if (this.state.isDimensionDrawing && this.state.tempDimension) {
+      const { tempDimension } = this.state;
+      // Only create dimension if it has some length
+      const dx = tempDimension.endX - tempDimension.startX;
+      const dy = tempDimension.endY - tempDimension.startY;
+      const length = Math.sqrt(dx * dx + dy * dy);
+      
+      if (length > 5) {
+        // Show modal to enter value
+        this.setState({
+          isDimensionDrawing: false,
+          dimensionStart: null,
+          pendingDimension: tempDimension,
+          showDimensionModal: true
+        });
+      } else {
+        // Too short, cancel
+        this.setState({
+          isDimensionDrawing: false,
+          dimensionStart: null,
+          tempDimension: null
+        });
+      }
+      return;
+    }
+    
+    // End panning
+    if (this.state.isPanning) {
+      this.setState({
+        isPanning: false,
+        lastPanPoint: null
+      });
+      return;
+    }
+    
     this.onResponderRelease();
   }
 
   handleTouchStart = (e: TouchEvent<HTMLCanvasElement>) => {
+    const { currentMode, penOnly } = this.state;
+    
     // Two-finger touch starts pan mode
     if (e.touches.length >= 2 && this.props.enablePan) {
       const center = this.getTouchCenter(e.touches);
@@ -832,11 +1527,88 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       });
       return;
     }
-    this.onResponderGrant(e);
+    
+    // penOnly mode check for stylus
+    if (penOnly && e.touches.length === 1) {
+      const nativeTouch = e.nativeEvent.touches[0] as Touch & { touchType?: string; radiusX?: number; radiusY?: number };
+      const isStylus = nativeTouch.touchType === 'stylus' || 
+                      (nativeTouch.radiusX !== undefined && nativeTouch.radiusX < 2 && nativeTouch.radiusY !== undefined && nativeTouch.radiusY < 2);
+      
+      // If not stylus in penOnly mode, use as pan
+      if (!isStylus) {
+        const touch = e.touches[0];
+        this.setState({
+          isPanning: true,
+          lastPanPoint: { x: touch.clientX, y: touch.clientY }
+        });
+        return;
+      }
+    }
+    
+    // Hand mode - single touch starts pan
+    if (currentMode === 'hand' && e.touches.length === 1) {
+      const touch = e.touches[0];
+      this.setState({
+        isPanning: true,
+        lastPanPoint: { x: touch.clientX, y: touch.clientY }
+      });
+      return;
+    }
+    
+    // Dimension mode
+    if (currentMode === 'dimension' && e.touches.length === 1) {
+      const touch = e.touches[0];
+      const coords = this.screenToCanvas(touch.clientX, touch.clientY);
+      const tempDim = createDimension(coords.x, coords.y, coords.x, coords.y, '', this.props.dimensionColor);
+      this.setState({
+        isDimensionDrawing: true,
+        dimensionStart: coords,
+        tempDimension: tempDim
+      });
+      return;
+    }
+    
+    if (currentMode === 'pen') {
+      this.onResponderGrant(e);
+    }
   }
 
   onResponderRelease = () => {
     this.dragging = false;
+    
+    // End dimension drawing on touch
+    if (this.state.isDimensionDrawing && this.state.tempDimension) {
+      const { tempDimension } = this.state;
+      const dx = tempDimension.endX - tempDimension.startX;
+      const dy = tempDimension.endY - tempDimension.startY;
+      const length = Math.sqrt(dx * dx + dy * dy);
+      
+      if (length > 5) {
+        this.setState({
+          isDimensionDrawing: false,
+          dimensionStart: null,
+          pendingDimension: tempDimension,
+          showDimensionModal: true,
+          isPanning: false,
+          lastPanPoint: null,
+          lastTouchDistance: null
+        });
+      } else {
+        this.setState({
+          isDimensionDrawing: false,
+          dimensionStart: null,
+          tempDimension: null,
+          isPanning: false,
+          lastPanPoint: null,
+          lastTouchDistance: null
+        });
+      }
+      
+      document.removeEventListener('touchmove', this.preventDefault);
+      document.removeEventListener('mousemove', this.preventDefault);
+      return;
+    }
+    
     this.setState({
       isPanning: false,
       lastPanPoint: null,
@@ -889,9 +1661,17 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     document.addEventListener('fullscreenchange', this.handleFullscreenChange);
     document.addEventListener('mousemove', this.handleGlobalMouseMove);
     document.addEventListener('mouseup', this.handleGlobalMouseUp);
+    document.addEventListener('keydown', this.handleKeyDown);
     // Prevent browser zoom on Ctrl+scroll
     this.containerElement?.addEventListener('wheel', this.preventBrowserZoom, { passive: false });
     this.updateSvgPosition();
+    
+    // Initialize pen with initial strokes if provided
+    const initialStrokes = this.props.strokes || this.props.initialStrokes;
+    if (initialStrokes && initialStrokes.length > 0) {
+      this.state.pen.clear();
+      initialStrokes.forEach(stroke => this.state.pen.addStroke(stroke));
+    }
     
     // Initial auto-fit after mount
     if (this.props.autoFit) {
@@ -906,6 +1686,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     document.removeEventListener('fullscreenchange', this.handleFullscreenChange);
     document.removeEventListener('mousemove', this.handleGlobalMouseMove);
     document.removeEventListener('mouseup', this.handleGlobalMouseUp);
+    document.removeEventListener('keydown', this.handleKeyDown);
     this.containerElement?.removeEventListener('wheel', this.preventBrowserZoom);
   }
 
@@ -916,15 +1697,47 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     }
   }
 
+  handleKeyDown = (e: globalThis.KeyboardEvent) => {
+    // Delete selected element with Delete or Backspace key
+    if ((e.key === 'Delete' || e.key === 'Backspace') && this.state.currentMode === 'mouse') {
+      // Don't delete if we're in an input field
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      
+      if (this.state.selectedImageId) {
+        e.preventDefault();
+        this.deleteSelectedImage();
+        return;
+      }
+      
+      if (this.state.selectedDimensionId) {
+        e.preventDefault();
+        this.deleteSelectedDimension();
+        return;
+      }
+      
+      if (this.state.selectedStrokeIndex !== null && this.state.selectedStrokeIndex >= 0) {
+        e.preventDefault();
+        this.deleteSelectedStroke();
+        return;
+      }
+    }
+  }
+
   handleGlobalMouseMove = (e: globalThis.MouseEvent) => {
     if (this.state.isDraggingImage || this.state.isResizingImage) {
       this.handleImageManipulation(e.clientX, e.clientY);
+    }
+    if (this.state.isDraggingDimension || this.state.isResizingDimension) {
+      this.handleDimensionManipulation(e.clientX, e.clientY);
     }
   }
 
   handleGlobalMouseUp = () => {
     if (this.state.isDraggingImage || this.state.isResizingImage) {
       this.endImageManipulation();
+    }
+    if (this.state.isDraggingDimension || this.state.isResizingDimension) {
+      this.endDimensionManipulation();
     }
   }
 
@@ -946,6 +1759,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       version: '1.0',
       strokes: this.state.previousStrokes,
       images: this.state.sketchImages,
+      dimensions: this.state.dimensions,
       viewState: {
         panX: this.state.panX,
         panY: this.state.panY,
@@ -965,6 +1779,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     
     const newStrokes = clearExisting ? data.strokes : [...this.state.previousStrokes, ...data.strokes];
     const newImages = clearExisting ? data.images : [...this.state.sketchImages, ...data.images];
+    const newDimensions = clearExisting ? (data.dimensions || []) : [...this.state.dimensions, ...(data.dimensions || [])];
     
     this.state.pen.clear();
     data.strokes.forEach(stroke => this.state.pen.addStroke(stroke));
@@ -972,6 +1787,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     const stateUpdate: Partial<WhiteboardState> = {
       previousStrokes: newStrokes,
       sketchImages: newImages,
+      dimensions: newDimensions,
       tracker: newStrokes.length
     };
     
@@ -984,6 +1800,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     this.setState(stateUpdate as WhiteboardState);
     this.props.onChangeStrokes?.(newStrokes);
     this.props.onChangeImages?.(newImages);
+    this.props.onChangeDimensions?.(newDimensions);
   }
 
   // Import whiteboard data from JSON string
@@ -1001,7 +1818,8 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
   render(): React.ReactElement {
     const { 
       height, width, previousStrokes, currentPoints, pen,
-      panX, panY, scale, sketchImages, selectedImageId, isFullscreen
+      panX, panY, scale, sketchImages, selectedImageId, isFullscreen,
+      dimensions, selectedDimensionId, selectedStrokeIndex, tempDimension, showDimensionModal, pendingDimension, currentMode
     } = this.state;
     const { 
       showGrid = false, 
@@ -1034,6 +1852,12 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     // Adjusted stroke width based on zoom (visual consistency)
     const adjustedStrokeWidth = currentPoints.width / scale;
 
+    // Set cursor based on mode
+    let cursorStyle = 'crosshair';
+    if (currentMode === 'hand') cursorStyle = this.state.isPanning ? 'grabbing' : 'grab';
+    else if (currentMode === 'mouse') cursorStyle = 'default';
+    else if (currentMode === 'dimension') cursorStyle = 'crosshair';
+
     return (<div
       {...props}
       ref={el => { this.containerElement = el }}>
@@ -1057,7 +1881,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
           position: 'absolute',
           top: 0,
           left: 0,
-          zIndex: 1,
+          zIndex: currentMode === 'mouse' && selectedImageId ? 5 : 1,
           pointerEvents: 'none',
           overflow: 'visible'
         }} 
@@ -1076,10 +1900,9 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
                 opacity={img.opacity ?? 1}
                 transform={img.rotation ? `rotate(${img.rotation} ${img.x + img.width / 2} ${img.y + img.height / 2})` : undefined}
                 style={{ 
-                  cursor: selectedImageId === img.id ? 'move' : 'pointer',
-                  pointerEvents: 'all'
+                  cursor: selectedImageId === img.id ? 'move' : (currentMode === 'mouse' ? 'pointer' : 'default'),
+                  pointerEvents: selectedImageId === img.id ? 'all' : 'none'
                 }}
-                onClick={(e) => { e.stopPropagation(); this.selectImage(img.id); }}
                 onContextMenu={(e) => e.preventDefault()}
                 onMouseDown={(e) => this.onImageMouseDown(e as unknown as React.MouseEvent, img.id)}
               />
@@ -1149,13 +1972,86 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       >
         <g transform={`translate(${panX}, ${panY}) scale(${scale})`}>
           {
-            new Pen(previousStrokes).toSvgWithScale({ width, height }, scale, this.props.autoFit)
+            new Pen(previousStrokes).toSvgWithScale({ width, height }, scale, true)
           }
           <path
-            d={pen.pointsToSvg(currentPoints, { height, width }, this.props.autoFit)}
+            d={pen.pointsToSvg(currentPoints, { height, width }, true)}
             stroke={currentPoints.color}
             strokeWidth={adjustedStrokeWidth}
             fill="none" />
+          
+          {/* Selection indicator for selected stroke */}
+          {this.state.selectedStrokeIndex !== null && this.state.selectedStrokeIndex >= 0 && previousStrokes[this.state.selectedStrokeIndex] && (() => {
+            const stroke = previousStrokes[this.state.selectedStrokeIndex];
+            if (stroke.points.length === 0) return null;
+            
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            stroke.points.forEach(p => {
+              minX = Math.min(minX, p.x);
+              minY = Math.min(minY, p.y);
+              maxX = Math.max(maxX, p.x);
+              maxY = Math.max(maxY, p.y);
+            });
+            
+            const padding = (stroke.width / 2 + 5) / scale;
+            return (
+              <rect
+                x={minX - padding}
+                y={minY - padding}
+                width={maxX - minX + padding * 2}
+                height={maxY - minY + padding * 2}
+                fill="none"
+                stroke="#2196f3"
+                strokeWidth={2 / scale}
+                strokeDasharray={`${4 / scale},${4 / scale}`}
+              />
+            );
+          })()}
+        </g>
+      </svg>
+
+      {/* Dimensions layer */}
+      <svg 
+        style={{ 
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          zIndex: currentMode === 'mouse' ? 4 : 2,
+          pointerEvents: 'none',
+          overflow: 'visible'
+        }} 
+        height={height}
+        width={width}
+      >
+        <g transform={`translate(${panX}, ${panY}) scale(${scale})`}>
+          {/* Existing dimensions */}
+          {dimensions.map((dim) => (
+            <Dimension
+              key={dim.id}
+              dimension={dim}
+              scale={scale}
+              selected={selectedDimensionId === dim.id}
+              onSelect={(id) => {
+                this.setState({ selectedDimensionId: id });
+              }}
+              onDragStart={(id, clientX, clientY) => {
+                this.onDimensionMouseDown(id, clientX, clientY);
+              }}
+              onHandleDragStart={(id, handle, clientX, clientY) => {
+                this.onDimensionHandleMouseDown(id, handle, clientX, clientY);
+              }}
+              enabled={currentMode === 'mouse'}
+            />
+          ))}
+          {/* Temporary dimension being drawn */}
+          {tempDimension && (
+            <Dimension
+              dimension={tempDimension}
+              scale={scale}
+              selected={false}
+              enabled={false}
+            />
+          )}
         </g>
       </svg>
 
@@ -1170,6 +2066,12 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
         onMouseUp={this.onMouseUp}
         onWheel={this.onWheel}
         onContextMenu={(e) => e.preventDefault()}
+        onDoubleClick={() => {
+          // Double click on selected dimension to edit
+          if (selectedDimensionId && currentMode === 'mouse') {
+            this.editDimensionValue(selectedDimensionId);
+          }
+        }}
         style={{
           position: 'absolute',
           top: 0,
@@ -1179,12 +2081,73 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
           backgroundColor: 'transparent',
           zIndex: 3,
           touchAction: 'none',
+          cursor: cursorStyle,
           pointerEvents: this.props.enabled === false ? 'none' : 'auto'
         }}>
       </canvas>
 
+      {/* Delete button for selected element */}
+      {(selectedImageId || selectedDimensionId || (selectedStrokeIndex !== null && selectedStrokeIndex >= 0)) && currentMode === 'mouse' && (
+        <button
+          onClick={() => {
+            if (selectedImageId) {
+              this.deleteSelectedImage();
+            } else if (selectedDimensionId) {
+              this.deleteSelectedDimension();
+            } else if (selectedStrokeIndex !== null && selectedStrokeIndex >= 0) {
+              this.deleteSelectedStroke();
+            }
+          }}
+          style={{
+            position: 'absolute',
+            top: 20,
+            right: 20,
+            zIndex: 100,
+            width: 44,
+            height: 44,
+            borderRadius: 8,
+            border: 'none',
+            backgroundColor: '#ef4444',
+            color: 'white',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+          }}
+          title="Elimina elemento selezionato"
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M3 6h18" />
+            <path d="M8 6V4h8v2" />
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+            <path d="M10 11v6" />
+            <path d="M14 11v6" />
+          </svg>
+        </button>
+      )}
+
       {/* Children (e.g., FloatingToolbox) */}
       {this.props.children}
+
+      {/* Dimension Modal */}
+      <DimensionModal
+        isOpen={showDimensionModal}
+        initialValue={pendingDimension?.value || ''}
+        onConfirm={(value) => {
+          if (pendingDimension && !dimensions.find(d => d.id === pendingDimension.id)) {
+            // New dimension
+            this.onDimensionModalConfirm(value);
+          } else {
+            // Editing existing
+            this.onDimensionEditConfirm(value);
+          }
+        }}
+        onCancel={this.onDimensionModalCancel}
+      />
     </div>) as React.ReactElement
   }
 }
+
+// Type alias for the Whiteboard class (useful for ref typing)
+export type WhiteBoard = Whiteboard;
