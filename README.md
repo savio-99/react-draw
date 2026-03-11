@@ -7,6 +7,7 @@ A powerful React whiteboard/drawing library with support for freehand drawing, i
 ## Features
 
 - ✏️ **Freehand Drawing** - Smooth pen strokes with customizable color and width
+- 🧽 **Eraser Tool** - Erase strokes with configurable eraser size
 - 🖼️ **Image Support** - Add, move, resize, and rotate images
 - 🔍 **Pan & Zoom** - Navigate large canvases with mouse wheel, touch gestures, or middle-click
 - 📐 **Grid Background** - Optional customizable grid overlay
@@ -17,7 +18,9 @@ A powerful React whiteboard/drawing library with support for freehand drawing, i
 - 🔄 **Auto-fit Preview** - Automatically scale content to fit container
 - ↩️ **Undo Support** - Undo last stroke
 - ✋ **Hand Mode** - Pan canvas by dragging without holding special keys
-- 🖊️ **Stylus Only Mode** - Ignore finger touch, use only stylus input (iOS/Android)
+- 🖊️ **Stylus Support** - Full support for Samsung S-Pen, Apple Pencil, and other styluses
+- 👆 **Touch Support** - Multi-touch gestures for pinch-to-zoom and two-finger pan
+- 🎯 **Pen Only Mode** - Ignore finger touch, use only stylus input (iOS/Android)
 - 📏 **Dimensions** - Add measurement annotations with customizable values
 
 ## Installation
@@ -144,6 +147,7 @@ const whiteboard = boardRef.current?.getWhiteboard();
     hand: 'Pan',
     dimension: 'Measure',
     select: 'Select',
+    eraser: 'Eraser',
     penOnly: 'Stylus Only',
     color: 'Pen Color',
     strokeWidth: 'Pen Size',
@@ -187,8 +191,9 @@ const whiteboard = boardRef.current?.getWhiteboard();
 | `onFullscreenChange` | `(isFullscreen: boolean) => void` | - | Callback when fullscreen state changes |
 | `autoFit` | `boolean` | `false` | Auto-fit content to container (useful for preview) |
 | `autoFitPadding` | `number` | `20` | Padding around content when auto-fitting |
+| `eraserWidth` | `number` | `20` | Eraser width in pixels |
 | `children` | `ReactNode` | - | Children (e.g., FloatingToolbox) |
-| `mode` | `'pen' \| 'hand' \| 'dimension' \| 'mouse'` | `'pen'` | Current interaction mode |
+| `mode` | `'pen' \| 'hand' \| 'dimension' \| 'mouse' \| 'eraser'` | `'pen'` | Current interaction mode |
 | `onModeChange` | `(mode: WhiteboardMode) => void` | - | Callback when mode changes |
 | `penOnly` | `boolean` | `false` | Only accept stylus input, ignore finger touch (iOS/Android) |
 | `onPenOnlyChange` | `(penOnly: boolean) => void` | - | Callback when penOnly changes |
@@ -233,7 +238,7 @@ whiteboard.current?.methodName();
 
 | Method | Description |
 |--------|-------------|
-| `setMode(mode: WhiteboardMode)` | Set interaction mode ('pen', 'hand', 'dimension', 'mouse') |
+| `setMode(mode: WhiteboardMode)` | Set interaction mode ('pen', 'hand', 'dimension', 'mouse', 'eraser') |
 | `getMode()` | Get current interaction mode |
 | `setPenOnly(enabled: boolean)` | Enable/disable stylus-only mode |
 | `getPenOnly()` | Check if penOnly mode is enabled |
@@ -320,10 +325,7 @@ interface DimensionData {
 #### WhiteboardMode
 
 ```typescript
-type WhiteboardMode = 'pen' | 'hand' | 'dimension' | 'mouse';
-```
-  opacity?: number;
-}
+type WhiteboardMode = 'pen' | 'hand' | 'dimension' | 'mouse' | 'eraser';
 ```
 
 #### WhiteboardData
@@ -654,7 +656,7 @@ function App() {
 }
 ```
 
-### Mode Switching (Pen, Hand, Dimension, Mouse)
+### Mode Switching (Pen, Hand, Dimension, Mouse, Eraser)
 
 ```tsx
 import { useRef, useState } from 'react';
@@ -705,6 +707,16 @@ function App() {
         whiteboard.current?.setMode('mouse');
       },
       icon: <span>🖱️</span>
+    },
+    {
+      id: 'eraser',
+      label: 'Eraser',
+      active: mode === 'eraser',
+      onClick: () => {
+        setMode('eraser');
+        whiteboard.current?.setMode('eraser');
+      },
+      icon: <span>🧽</span>
     },
     {
       id: 'penOnly',
@@ -825,32 +837,44 @@ interface ToolboxAction {
 - **color**: Native color input
 - **number**: Native number input
 
-## Keyboard & Mouse Controls
+## Keyboard, Mouse & Touch Controls
 
 | Action | Control |
 |--------|---------|
-| Zoom | `Ctrl + Scroll` or pinch gesture |
+| Zoom | `Ctrl + Scroll`, pinch gesture (two fingers), or mouse wheel |
 | Pan | `Middle mouse button` drag, two-finger touch, or Hand mode |
-| Draw | Left mouse button or single-finger touch (in Pen mode) |
-| Select Image | Click image (in Mouse mode or when `enabled={false}`) |
-| Move Image | Drag selected image |
-| Resize Image | Drag corner handles |
-| Add Dimension | Click and drag (in Dimension mode) |
-| Edit Dimension | Double-click dimension (in Mouse mode) |
-| Select Dimension | Click dimension (in Mouse mode) |
+| Draw | Left mouse button, stylus, or single-finger touch (in Pen mode) |
+| Erase | Left mouse button, stylus, or touch drag (in Eraser mode) |
+| Select Image | Click/tap image (in Mouse mode or when `enabled={false}`) |
+| Move Image | Drag selected image with mouse, stylus, or touch |
+| Resize Image | Drag corner handles with mouse, stylus, or touch |
+| Add Dimension | Click/tap and drag (in Dimension mode) |
+| Edit Dimension | Double-click/tap dimension (in Mouse mode) |
+| Select Dimension | Click/tap dimension (in Mouse mode) |
+| Move Dimension | Drag dimension body (in Mouse mode) |
+| Resize Dimension | Drag endpoint handles (in Mouse mode) |
 
 ### Interaction Modes
 
 | Mode | Description |
 |------|-------------|
-| `pen` | Default drawing mode. Left-click/touch draws strokes |
-| `hand` | Pan mode. Left-click/touch pans the canvas |
-| `dimension` | Dimension mode. Click and drag to add measurement lines |
-| `mouse` | Selection mode. Click to select images or dimensions |
+| `pen` | Default drawing mode. Left-click/touch/stylus draws strokes |
+| `hand` | Pan mode. Left-click/touch/stylus pans the canvas |
+| `dimension` | Dimension mode. Click/tap and drag to add measurement lines |
+| `mouse` | Selection mode. Click/tap to select images, dimensions, or strokes |
+| `eraser` | Eraser mode. Drag to erase strokes that intersect with the eraser |
 
-### Stylus Only Mode (penOnly)
+### Stylus & Touch Support
 
-When `penOnly` is enabled, the whiteboard ignores regular finger touches and only responds to stylus/pen input. This is useful for devices like iPad Pro with Apple Pencil or Android tablets with stylus support. When a finger touch is detected in penOnly mode, it will pan the canvas instead of drawing.
+The library provides full support for stylus input (Samsung S-Pen, Apple Pencil, Surface Pen, etc.) and touch gestures:
+
+- **Stylus Detection**: Automatically detects pen vs touch vs mouse input
+- **Pressure Sensitivity**: Works with pressure-sensitive styluses
+- **Palm Rejection**: When `penOnly` is enabled, finger touches are ignored for drawing but can still be used for panning
+- **Multi-touch Gestures**: Two-finger pinch-to-zoom and pan work in all modes
+- **Touch-friendly UI**: All toolbox buttons and controls work with touch input
+
+When `penOnly` is enabled, the whiteboard ignores regular finger touches for drawing and only responds to stylus/pen input. Finger touches will pan the canvas instead, providing a natural drawing experience on tablets.
 
 ## License
 

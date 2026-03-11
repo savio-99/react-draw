@@ -77,9 +77,22 @@ export const DimensionModal: React.FC<DimensionModalProps> = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        zIndex: 10000
+        zIndex: 10000,
+        touchAction: 'none'
       }}
-      onClick={onCancel}
+      onPointerDown={(e) => {
+        // Only cancel if clicking the backdrop (not bubbled from children)
+        if (e.target === e.currentTarget) {
+          e.stopPropagation();
+        }
+      }}
+      onPointerUp={(e) => {
+        // Only cancel if clicking the backdrop (not bubbled from children)
+        if (e.target === e.currentTarget) {
+          e.stopPropagation();
+          onCancel();
+        }
+      }}
     >
       <div
         style={{
@@ -87,8 +100,11 @@ export const DimensionModal: React.FC<DimensionModalProps> = ({
           borderRadius: 12,
           padding: 24,
           minWidth: 300,
-          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)'
+          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)',
+          touchAction: 'manipulation'
         }}
+        onPointerDown={(e) => e.stopPropagation()}
+        onPointerUp={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
       >
         <h3 style={{ margin: '0 0 16px 0', fontSize: 18, fontWeight: 600 }}>
@@ -116,20 +132,31 @@ export const DimensionModal: React.FC<DimensionModalProps> = ({
           <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
             <button
               type="button"
-              onClick={onCancel}
+              onPointerDown={(e) => e.stopPropagation()}
+              onPointerUp={(e) => {
+                e.stopPropagation();
+                onCancel();
+              }}
               style={{
                 padding: '10px 20px',
                 fontSize: 14,
                 border: '1px solid #ccc',
                 borderRadius: 6,
                 backgroundColor: 'white',
-                cursor: 'pointer'
+                cursor: 'pointer',
+                touchAction: 'manipulation'
               }}
             >
               Annulla
             </button>
             <button
               type="submit"
+              onPointerDown={(e) => e.stopPropagation()}
+              onPointerUp={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                onConfirm(value);
+              }}
               style={{
                 padding: '10px 20px',
                 fontSize: 14,
@@ -137,7 +164,8 @@ export const DimensionModal: React.FC<DimensionModalProps> = ({
                 borderRadius: 6,
                 backgroundColor: '#2196f3',
                 color: 'white',
-                cursor: 'pointer'
+                cursor: 'pointer',
+                touchAction: 'manipulation'
               }}
             >
               Conferma
@@ -205,27 +233,27 @@ const Dimension: React.FC<DimensionProps> = ({
     textAngle += 180;
   }
 
-  const handleClick = (e: React.MouseEvent) => {
+  const handleClick = (e: React.MouseEvent | React.PointerEvent) => {
     if (!enabled) return;
     e.stopPropagation();
     onSelect?.(id);
   };
 
-  const handleMouseDown = (e: React.MouseEvent) => {
+  const handlePointerDown = (e: React.PointerEvent) => {
     if (!enabled || !selected) return;
     e.stopPropagation();
     e.preventDefault();
     onDragStart?.(id, e.clientX, e.clientY);
   };
 
-  const handleStartHandleMouseDown = (e: React.MouseEvent) => {
+  const handleStartHandlePointerDown = (e: React.PointerEvent) => {
     if (!enabled) return;
     e.stopPropagation();
     e.preventDefault();
     onHandleDragStart?.(id, 'start', e.clientX, e.clientY);
   };
 
-  const handleEndHandleMouseDown = (e: React.MouseEvent) => {
+  const handleEndHandlePointerDown = (e: React.PointerEvent) => {
     if (!enabled) return;
     e.stopPropagation();
     e.preventDefault();
@@ -239,10 +267,11 @@ const Dimension: React.FC<DimensionProps> = ({
   return (
     <g 
       onClick={handleClick}
-      onMouseDown={handleMouseDown}
+      onPointerDown={handlePointerDown}
       style={{ 
         cursor: enabled ? (selected ? 'move' : 'pointer') : 'default',
-        pointerEvents: enabled ? 'all' : 'none'
+        pointerEvents: enabled ? 'all' : 'none',
+        touchAction: 'none'
       }}
     >
       {/* Main dimension line */}
@@ -336,8 +365,8 @@ const Dimension: React.FC<DimensionProps> = ({
             fill="#2196f3"
             stroke="white"
             strokeWidth={2 / scale}
-            style={{ cursor: 'grab' }}
-            onMouseDown={handleStartHandleMouseDown}
+            style={{ cursor: 'grab', touchAction: 'none' }}
+            onPointerDown={handleStartHandlePointerDown}
           />
           {/* Draggable handle at end point */}
           <circle
@@ -347,8 +376,8 @@ const Dimension: React.FC<DimensionProps> = ({
             fill="#2196f3"
             stroke="white"
             strokeWidth={2 / scale}
-            style={{ cursor: 'grab' }}
-            onMouseDown={handleEndHandleMouseDown}
+            style={{ cursor: 'grab', touchAction: 'none' }}
+            onPointerDown={handleEndHandlePointerDown}
           />
         </>
       )}

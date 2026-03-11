@@ -41,9 +41,39 @@ const FloatingToolbox: React.FC<FloatingToolboxProps> = ({
   const [position, setPosition] = useState(initialPosition);
   const [isDragging, setIsDragging] = useState(false);
   const [openPopup, setOpenPopup] = useState<string | null>(null);
+  const [useDoubleColumn, setUseDoubleColumn] = useState(false);
   const toolboxRef = useRef<HTMLDivElement>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
+  const activePointerId = useRef<number | null>(null);
   const fileInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
+  const wasFullscreenBeforeFileDialog = useRef<boolean>(false);
+
+  // Check if toolbox needs to use double column layout
+  useEffect(() => {
+    const checkHeight = () => {
+      const container = containerRef?.current;
+      const toolbox = toolboxRef.current;
+      if (!container || !toolbox) return;
+      
+      const containerRect = container.getBoundingClientRect();
+      // Estimate single column height: ~52px per action (36px button + padding + gap)
+      const estimatedSingleColumnHeight = (actions.length + 1) * 48 + 40; // +1 for drag handle, +40 for padding
+      const availableHeight = containerRect.height - 40; // 20px margin top and bottom
+      
+      setUseDoubleColumn(orientation === 'vertical' && estimatedSingleColumnHeight > availableHeight);
+    };
+    
+    checkHeight();
+    window.addEventListener('resize', checkHeight);
+    
+    // Also check on fullscreen changes
+    document.addEventListener('fullscreenchange', checkHeight);
+    
+    return () => {
+      window.removeEventListener('resize', checkHeight);
+      document.removeEventListener('fullscreenchange', checkHeight);
+    };
+  }, [actions.length, orientation, containerRef]);
 
   // Close popup when clicking outside
   useEffect(() => {
@@ -56,12 +86,19 @@ const FloatingToolbox: React.FC<FloatingToolboxProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [openPopup]);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+  // Unified Pointer Event handlers for better touch/pen/mouse support
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    // Skip if clicking on interactive elements
     if ((e.target as HTMLElement).closest('button') || 
         (e.target as HTMLElement).closest('input') ||
         (e.target as HTMLElement).closest('label')) return;
     
+    // Only track the first pointer
+    if (activePointerId.current !== null) return;
+    
+    activePointerId.current = e.pointerId;
     setIsDragging(true);
+    
     const rect = toolboxRef.current?.getBoundingClientRect();
     if (rect) {
       dragOffset.current = {
@@ -69,82 +106,56 @@ const FloatingToolbox: React.FC<FloatingToolboxProps> = ({
         y: e.clientY - rect.top
       };
     }
-    e.preventDefault();
-  }, []);
-
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    if ((e.target as HTMLElement).closest('button') ||
-        (e.target as HTMLElement).closest('input') ||
-        (e.target as HTMLElement).closest('label')) return;
     
-    const touch = e.touches[0];
-    setIsDragging(true);
-    const rect = toolboxRef.current?.getBoundingClientRect();
-    if (rect) {
-      dragOffset.current = {
-        x: touch.clientX - rect.left,
-        y: touch.clientY - rect.top
-      };
+    // Capture pointer for reliable tracking
+    try {
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      // Ignore capture errors
+    }
+    
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!isDragging || activePointerId.current !== e.pointerId) return;
+    
+    const container = containerRef?.current || document.body;
+    const containerRect = container.getBoundingClientRect();
+    const toolboxRect = toolboxRef.current?.getBoundingClientRect();
+
+    if (toolboxRect) {
+      let newX = e.clientX - containerRect.left - dragOffset.current.x;
+      let newY = e.clientY - containerRect.top - dragOffset.current.y;
+
+      // Constrain to container bounds
+      newX = Math.max(0, Math.min(newX, containerRect.width - toolboxRect.width));
+      newY = Math.max(0, Math.min(newY, containerRect.height - toolboxRect.height));
+
+      setPosition({ x: newX, y: newY });
+    }
+    
+    e.preventDefault();
+    e.stopPropagation();
+  }, [isDragging, containerRef]);
+
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    if (activePointerId.current !== e.pointerId) return;
+    
+    activePointerId.current = null;
+    setIsDragging(false);
+    
+    try {
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      // Ignore release errors
     }
   }, []);
 
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isDragging) return;
-
-      const container = containerRef?.current || document.body;
-      const containerRect = container.getBoundingClientRect();
-      const toolboxRect = toolboxRef.current?.getBoundingClientRect();
-
-      if (toolboxRect) {
-        let newX = e.clientX - containerRect.left - dragOffset.current.x;
-        let newY = e.clientY - containerRect.top - dragOffset.current.y;
-
-        // Constrain to container bounds
-        newX = Math.max(0, Math.min(newX, containerRect.width - toolboxRect.width));
-        newY = Math.max(0, Math.min(newY, containerRect.height - toolboxRect.height));
-
-        setPosition({ x: newX, y: newY });
-      }
-    };
-
-    const handleTouchMove = (e: TouchEvent) => {
-      if (!isDragging) return;
-
-      const touch = e.touches[0];
-      const container = containerRef?.current || document.body;
-      const containerRect = container.getBoundingClientRect();
-      const toolboxRect = toolboxRef.current?.getBoundingClientRect();
-
-      if (toolboxRect) {
-        let newX = touch.clientX - containerRect.left - dragOffset.current.x;
-        let newY = touch.clientY - containerRect.top - dragOffset.current.y;
-
-        newX = Math.max(0, Math.min(newX, containerRect.width - toolboxRect.width));
-        newY = Math.max(0, Math.min(newY, containerRect.height - toolboxRect.height));
-
-        setPosition({ x: newX, y: newY });
-      }
-    };
-
-    const handleMouseUp = () => {
-      setIsDragging(false);
-    };
-
-    if (isDragging) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      document.addEventListener('touchmove', handleTouchMove);
-      document.addEventListener('touchend', handleMouseUp);
-    }
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.removeEventListener('touchmove', handleTouchMove);
-      document.removeEventListener('touchend', handleMouseUp);
-    };
-  }, [isDragging, containerRef]);
+  const handlePointerCancel = useCallback((e: React.PointerEvent) => {
+    handlePointerUp(e);
+  }, [handlePointerUp]);
 
   if (!visible) return null;
 
@@ -162,7 +173,14 @@ const FloatingToolbox: React.FC<FloatingToolboxProps> = ({
       backgroundColor: action.active ? '#e3f2fd' : 'transparent',
       cursor: 'pointer',
       transition: 'background-color 0.2s',
-      position: 'relative'
+      position: 'relative',
+      touchAction: 'manipulation'
+    };
+
+    // Use onPointerUp for touch-friendly clicks
+    const handleClick = (e: React.PointerEvent | React.MouseEvent, onClick?: () => void) => {
+      e.stopPropagation();
+      onClick?.();
     };
 
     switch (action.type) {
@@ -175,7 +193,8 @@ const FloatingToolbox: React.FC<FloatingToolboxProps> = ({
             <button
               title={action.label}
               style={baseStyle}
-              onClick={() => setOpenPopup(isOpen ? null : action.id)}
+              onPointerDown={(e) => e.stopPropagation()}
+              onPointerUp={(e) => handleClick(e, () => setOpenPopup(isOpen ? null : action.id))}
               onMouseEnter={(e) => {
                 if (!action.active) {
                   (e.currentTarget as HTMLElement).style.backgroundColor = '#f5f5f5';
@@ -204,22 +223,26 @@ const FloatingToolbox: React.FC<FloatingToolboxProps> = ({
               </span>
             </button>
             {isOpen && (
-              <div style={{
-                position: 'absolute',
-                left: '100%',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                marginLeft: 8,
-                backgroundColor: 'white',
-                borderRadius: 8,
-                boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
-                padding: '12px 16px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                zIndex: 1001,
-                minWidth: 180
-              }}>
+              <div 
+                style={{
+                  position: 'absolute',
+                  left: '100%',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  marginLeft: 8,
+                  backgroundColor: 'white',
+                  borderRadius: 8,
+                  boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
+                  padding: '12px 16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  zIndex: 1001,
+                  minWidth: 180,
+                  touchAction: 'manipulation'
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
                 <input
                   type="range"
                   min={action.min || 1}
@@ -229,7 +252,8 @@ const FloatingToolbox: React.FC<FloatingToolboxProps> = ({
                   style={{
                     flex: 1,
                     cursor: 'pointer',
-                    accentColor: '#2196f3'
+                    accentColor: '#2196f3',
+                    touchAction: 'manipulation'
                   }}
                 />
                 <div style={{
@@ -255,7 +279,8 @@ const FloatingToolbox: React.FC<FloatingToolboxProps> = ({
             <button
               title={action.label}
               style={baseStyle}
-              onClick={() => setOpenPopup(isColorOpen ? null : action.id)}
+              onPointerDown={(e) => e.stopPropagation()}
+              onPointerUp={(e) => handleClick(e, () => setOpenPopup(isColorOpen ? null : action.id))}
               onMouseEnter={(e) => {
                 if (!action.active) {
                   (e.currentTarget as HTMLElement).style.backgroundColor = '#f5f5f5';
@@ -274,18 +299,22 @@ const FloatingToolbox: React.FC<FloatingToolboxProps> = ({
               }} />
             </button>
             {isColorOpen && (
-              <div style={{
-                position: 'absolute',
-                left: '100%',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                marginLeft: 8,
-                backgroundColor: 'white',
-                borderRadius: 8,
-                boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
-                padding: 12,
-                zIndex: 1001
-              }}>
+              <div 
+                style={{
+                  position: 'absolute',
+                  left: '100%',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  marginLeft: 8,
+                  backgroundColor: 'white',
+                  borderRadius: 8,
+                  boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
+                  padding: 12,
+                  zIndex: 1001,
+                  touchAction: 'manipulation'
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
                 {/* Color presets grid */}
                 <div style={{
                   display: 'grid',
@@ -296,10 +325,11 @@ const FloatingToolbox: React.FC<FloatingToolboxProps> = ({
                   {colorPresets.map((color, idx) => (
                     <button
                       key={idx}
-                      onClick={() => {
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onPointerUp={(e) => handleClick(e, () => {
                         action.onChange?.(color);
                         setOpenPopup(null);
-                      }}
+                      })}
                       style={{
                         width: 28,
                         height: 28,
@@ -307,7 +337,8 @@ const FloatingToolbox: React.FC<FloatingToolboxProps> = ({
                         backgroundColor: color,
                         border: currentColor === color ? '3px solid #2196f3' : '2px solid #ddd',
                         cursor: 'pointer',
-                        padding: 0
+                        padding: 0,
+                        touchAction: 'manipulation'
                       }}
                     />
                   ))}
@@ -406,6 +437,12 @@ const FloatingToolbox: React.FC<FloatingToolboxProps> = ({
             style={{
               ...baseStyle,
             }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerUp={(e) => {
+              e.stopPropagation();
+              // Trigger file input click
+              fileInputRefs.current[action.id]?.click();
+            }}
             onMouseEnter={(e) => {
               (e.currentTarget as HTMLElement).style.backgroundColor = '#f5f5f5';
             }}
@@ -418,12 +455,28 @@ const FloatingToolbox: React.FC<FloatingToolboxProps> = ({
               ref={el => { fileInputRefs.current[action.id] = el; }}
               type="file"
               accept={action.accept || 'image/*'}
+              onClick={(e) => {
+                e.stopPropagation();
+                // Store fullscreen state BEFORE file dialog opens (dialog exits fullscreen)
+                wasFullscreenBeforeFileDialog.current = !!document.fullscreenElement;
+              }}
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) {
                   const reader = new FileReader();
                   reader.onload = (event) => {
                     action.onChange?.(event.target?.result as string);
+                    // Re-enter fullscreen if we were in fullscreen before the file dialog
+                    if (wasFullscreenBeforeFileDialog.current && !document.fullscreenElement) {
+                      const container = containerRef?.current;
+                      if (container) {
+                        setTimeout(() => {
+                          container.requestFullscreen?.().catch(() => {
+                            // Ignore fullscreen request errors
+                          });
+                        }, 100);
+                      }
+                    }
                   };
                   reader.readAsDataURL(file);
                 }
@@ -433,9 +486,9 @@ const FloatingToolbox: React.FC<FloatingToolboxProps> = ({
               style={{
                 position: 'absolute',
                 opacity: 0,
-                width: '100%',
-                height: '100%',
-                cursor: 'pointer'
+                width: 1,
+                height: 1,
+                pointerEvents: 'none'
               }}
             />
           </label>
@@ -445,7 +498,8 @@ const FloatingToolbox: React.FC<FloatingToolboxProps> = ({
         return (
           <button
             key={action.id}
-            onClick={action.onClick}
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerUp={(e) => handleClick(e, action.onClick)}
             title={action.label}
             style={baseStyle}
             onMouseEnter={(e) => {
@@ -466,14 +520,17 @@ const FloatingToolbox: React.FC<FloatingToolboxProps> = ({
   return (
     <div
       ref={toolboxRef}
-      onMouseDown={handleMouseDown}
-      onTouchStart={handleTouchStart}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
       style={{
         position: 'absolute',
         left: position.x,
         top: position.y,
-        display: 'flex',
-        flexDirection: isHorizontal ? 'row' : 'column',
+        display: 'grid',
+        gridTemplateColumns: useDoubleColumn ? 'repeat(2, auto)' : '1fr',
+        gridAutoFlow: useDoubleColumn ? 'row' : (isHorizontal ? 'column' : 'row'),
         backgroundColor: 'rgba(255, 255, 255, 0.95)',
         borderRadius: 8,
         boxShadow: '0 2px 10px rgba(0, 0, 0, 0.2)',
@@ -481,6 +538,7 @@ const FloatingToolbox: React.FC<FloatingToolboxProps> = ({
         gap: 4,
         cursor: isDragging ? 'grabbing' : 'grab',
         userSelect: 'none',
+        touchAction: 'manipulation',
         zIndex: 1000,
         ...style
       }}
@@ -491,10 +549,13 @@ const FloatingToolbox: React.FC<FloatingToolboxProps> = ({
           justifyContent: 'center',
           alignItems: 'center',
           padding: 4,
+          gridColumn: useDoubleColumn ? 'span 2' : undefined,
           marginBottom: isHorizontal ? 0 : 4,
           marginRight: isHorizontal ? 4 : 0,
           borderBottom: isHorizontal ? 'none' : '1px solid #eee',
-          borderRight: isHorizontal ? '1px solid #eee' : 'none'
+          borderRight: isHorizontal ? '1px solid #eee' : 'none',
+          touchAction: 'none',
+          cursor: 'grab'
         }}
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

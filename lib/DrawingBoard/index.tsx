@@ -71,6 +71,7 @@ export interface DrawingBoardProps {
     modeLabel?: string;
     penOnlyActive?: string;
     instructions?: string;
+    eraser?: string;
   };
 }
 
@@ -116,7 +117,8 @@ const defaultLabels = {
   exportImage: 'Esporta Immagine',
   modeLabel: 'Modalità',
   penOnlyActive: 'Solo Penna attivo',
-  instructions: 'Ctrl + rotellina per zoom, tasto centrale o due dita per spostarsi'
+  instructions: 'Ctrl + rotellina per zoom, tasto centrale o due dita per spostarsi',
+  eraser: 'Gomma'
 };
 
 const defaultColorPalette = ['#000000', '#ffffff', '#ef4444', '#22c55e', '#3b82f6', '#eab308', '#a855f7', '#ec4899', '#f97316', '#06b6d4'];
@@ -315,6 +317,21 @@ const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
       }
     },
     {
+      id: 'eraserMode',
+      label: labels.eraser,
+      active: mode === 'eraser',
+      icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill={mode === 'eraser' ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2">
+          <path d="M20 20H7L3 16c-.6-.6-.6-1.5 0-2.1l10-10c.6-.6 1.5-.6 2.1 0l6 6c.6.6.6 1.5 0 2.1L12 21" />
+          <path d="M6 11l8 8" />
+        </svg>
+      ),
+      onClick: () => {
+        setMode('eraser');
+        whiteboard.current?.setMode('eraser');
+      }
+    },
+    {
       id: 'penOnly',
       label: labels.penOnly,
       active: penOnly,
@@ -428,8 +445,16 @@ const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
       label: labels.resetView,
       icon: (
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-          <path d="M3 3v5h5" />
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <path d="M9 9h6v6H9z" />
+          <path d="M9 3v2" />
+          <path d="M15 3v2" />
+          <path d="M9 19v2" />
+          <path d="M15 19v2" />
+          <path d="M3 9h2" />
+          <path d="M3 15h2" />
+          <path d="M19 9h2" />
+          <path d="M19 15h2" />
         </svg>
       ),
       onClick: () => whiteboard.current?.resetView()

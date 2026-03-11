@@ -1,12 +1,12 @@
 import React from 'react'
-import type { TouchEvent, MouseEvent, WheelEvent } from 'react'
+import type { TouchEvent, MouseEvent, WheelEvent, PointerEvent } from 'react'
 import Pen from '../Pen'
 import { Point, Stroke } from '../main'
 import Grid from '../Grid'
 import { SketchImage, createImage, loadImageDimensions } from '../Image'
 import Dimension, { DimensionModal, DimensionData, createDimension } from '../Dimension'
 
-export type WhiteboardMode = 'pen' | 'hand' | 'dimension' | 'mouse';
+export type WhiteboardMode = 'pen' | 'hand' | 'dimension' | 'mouse' | 'eraser';
 
 export interface WhiteboardData {
   version: string;
@@ -52,7 +52,8 @@ interface WhiteboardProps {
   dimensions?: DimensionData[],
   initialDimensions?: DimensionData[],
   onChangeDimensions?: (dimensions: DimensionData[]) => void,
-  dimensionColor?: string
+  dimensionColor?: string,
+  eraserWidth?: number
 }
 
 interface WhiteboardState {
@@ -97,7 +98,12 @@ interface WhiteboardState {
   isResizingDimension: boolean,
   dimensionResizeHandle: 'start' | 'end' | null,
   dimensionStartData: DimensionData | null,
-  dimensionDragStart: { x: number, y: number } | null
+  dimensionDragStart: { x: number, y: number } | null,
+  // Pointer tracking for stylus detection and multi-touch
+  activePointerId: number | null,
+  activePointerType: string | null,
+  activePointers: Map<number, { x: number, y: number, type: string }>,
+  lastPinchDistance: number | null
 }
 
 export default class Whiteboard extends React.Component<WhiteboardProps, WhiteboardState> {
@@ -155,7 +161,12 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       isResizingDimension: false,
       dimensionResizeHandle: null,
       dimensionStartData: null,
-      dimensionDragStart: null
+      dimensionDragStart: null,
+      // Pointer tracking for stylus detection and multi-touch
+      activePointerId: null,
+      activePointerType: null,
+      activePointers: new Map(),
+      lastPinchDistance: null
     }
   }
 
@@ -208,6 +219,9 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
   }
 
   addImage = async (src: string, x?: number, y?: number, width?: number, height?: number) => {
+    // Store fullscreen state before async operation (file dialog exits fullscreen)
+    const wasFullscreen = this.state.isFullscreen;
+    
     try {
       let imgWidth = width;
       let imgHeight = height;
@@ -231,6 +245,17 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       const newImages = [...this.state.sketchImages, newImage];
       this.setState({ sketchImages: newImages });
       this.props.onChangeImages?.(newImages);
+      
+      // Re-enter fullscreen if we were in fullscreen before
+      if (wasFullscreen && !document.fullscreenElement && this.containerElement) {
+        // Small delay to ensure DOM is ready
+        setTimeout(() => {
+          this.containerElement?.requestFullscreen?.().catch(() => {
+            // Ignore fullscreen request errors (user may have denied)
+          });
+        }, 100);
+      }
+      
       return newImage;
     } catch (error) {
       console.error('Failed to load image:', error);
@@ -256,7 +281,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     this.setState({ selectedImageId: imageId });
   }
 
-  onImageMouseDown = (e: React.MouseEvent, imageId: string) => {
+  onImagePointerDown = (e: React.PointerEvent, imageId: string) => {
     e.stopPropagation();
     e.preventDefault();
     
@@ -273,7 +298,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     });
   }
 
-  onResizeHandleMouseDown = (e: React.MouseEvent, imageId: string, handle: string) => {
+  onResizeHandlePointerDown = (e: React.PointerEvent, imageId: string, handle: string) => {
     e.stopPropagation();
     e.preventDefault();
     
@@ -612,6 +637,134 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     }
     
     return null;
+  }
+
+  // Find image resize handle at a point (returns handle name or null)
+  findImageResizeHandleAtPoint = (x: number, y: number): { imageId: string; handle: string } | null => {
+    const { selectedImageId, sketchImages, scale } = this.state;
+    if (!selectedImageId) return null;
+    
+    const img = sketchImages.find(i => i.id === selectedImageId);
+    if (!img) return null;
+    
+    const handleSize = 16 / scale; // Slightly larger than visual for easier touch
+    const handles = ['nw', 'ne', 'sw', 'se'];
+    
+    for (const handle of handles) {
+      let hx = img.x, hy = img.y;
+      if (handle === 'nw') { hx = img.x - handleSize / 2; hy = img.y - handleSize / 2; }
+      if (handle === 'ne') { hx = img.x + img.width - handleSize / 2; hy = img.y - handleSize / 2; }
+      if (handle === 'sw') { hx = img.x - handleSize / 2; hy = img.y + img.height - handleSize / 2; }
+      if (handle === 'se') { hx = img.x + img.width - handleSize / 2; hy = img.y + img.height - handleSize / 2; }
+      
+      if (x >= hx && x <= hx + handleSize && y >= hy && y <= hy + handleSize) {
+        return { imageId: selectedImageId, handle };
+      }
+    }
+    
+    return null;
+  }
+
+  // Find dimension handle at a point (returns handle type or null)
+  findDimensionHandleAtPoint = (x: number, y: number): { dimensionId: string; handle: 'start' | 'end' | 'body' } | null => {
+    const { selectedDimensionId, dimensions, scale } = this.state;
+    if (!selectedDimensionId) return null;
+    
+    const dim = dimensions.find(d => d.id === selectedDimensionId);
+    if (!dim) return null;
+    
+    const handleRadius = 12 / scale; // Slightly larger for easier touch
+    
+    // Check start handle
+    const distStart = Math.sqrt((x - dim.startX) ** 2 + (y - dim.startY) ** 2);
+    if (distStart <= handleRadius) {
+      return { dimensionId: selectedDimensionId, handle: 'start' };
+    }
+    
+    // Check end handle
+    const distEnd = Math.sqrt((x - dim.endX) ** 2 + (y - dim.endY) ** 2);
+    if (distEnd <= handleRadius) {
+      return { dimensionId: selectedDimensionId, handle: 'end' };
+    }
+    
+    // Check if on the line body (for dragging the whole dimension)
+    const threshold = 15 / scale;
+    const dx = dim.endX - dim.startX;
+    const dy = dim.endY - dim.startY;
+    const lengthSquared = dx * dx + dy * dy;
+    
+    if (lengthSquared > 0) {
+      const t = Math.max(0, Math.min(1, ((x - dim.startX) * dx + (y - dim.startY) * dy) / lengthSquared));
+      const projX = dim.startX + t * dx;
+      const projY = dim.startY + t * dy;
+      const dist = Math.sqrt((x - projX) ** 2 + (y - projY) ** 2);
+      
+      if (dist <= threshold) {
+        return { dimensionId: selectedDimensionId, handle: 'body' };
+      }
+    }
+    
+    return null;
+  }
+
+  // Helper: Calculate distance from point to line segment
+  pointToSegmentDistance = (px: number, py: number, x1: number, y1: number, x2: number, y2: number): number => {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const lengthSquared = dx * dx + dy * dy;
+    
+    if (lengthSquared === 0) {
+      // Segment is a point
+      return Math.sqrt((px - x1) ** 2 + (py - y1) ** 2);
+    }
+    
+    // Project point onto line segment
+    let t = ((px - x1) * dx + (py - y1) * dy) / lengthSquared;
+    t = Math.max(0, Math.min(1, t)); // Clamp to segment
+    
+    const projX = x1 + t * dx;
+    const projY = y1 + t * dy;
+    
+    return Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
+  }
+
+  // Erase strokes that intersect with the eraser circle
+  eraseAtPoint = (x: number, y: number) => {
+    const eraserWidth = this.props.eraserWidth || 20;
+    const eraserRadius = (eraserWidth / 2) / this.state.scale;
+    const { previousStrokes } = this.state;
+    
+    const strokesToKeep = previousStrokes.filter(stroke => {
+      const strokeRadius = (stroke.width || 2) / 2 / this.state.scale;
+      const threshold = eraserRadius + strokeRadius;
+      
+      // Check line segments between consecutive points
+      for (let i = 0; i < stroke.points.length; i++) {
+        const point = stroke.points[i];
+        
+        // Check if the point itself is within range
+        const pointDist = Math.sqrt((point.x - x) ** 2 + (point.y - y) ** 2);
+        if (pointDist <= threshold) {
+          return false; // Remove this stroke
+        }
+        
+        // Check the line segment to the next point
+        if (i < stroke.points.length - 1) {
+          const nextPoint = stroke.points[i + 1];
+          const segmentDist = this.pointToSegmentDistance(x, y, point.x, point.y, nextPoint.x, nextPoint.y);
+          if (segmentDist <= threshold) {
+            return false; // Remove this stroke
+          }
+        }
+      }
+      return true; // Keep this stroke
+    });
+    
+    if (strokesToKeep.length !== previousStrokes.length) {
+      this.state.pen.strokes = strokesToKeep;
+      this.setState({ previousStrokes: strokesToKeep });
+      this._onChangeStrokes(strokesToKeep);
+    }
   }
 
   setPan = (x: number, y: number) => {
@@ -1015,14 +1168,15 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
 
   undo = () => {
     if (this.state.currentPoints.points.length > 0 || this.state.previousStrokes.length < 1) return
-    const strokes = this.state.previousStrokes
-    strokes.pop()
+    // Create a copy BEFORE modifying to avoid mutating state directly
+    const strokes = [...this.state.previousStrokes];
+    strokes.pop();
 
-    this.state.pen.undoStroke()
+    this.state.pen.undoStroke();
     const { height, width } = this.state;
 
     this.setState({
-      previousStrokes: [...strokes],
+      previousStrokes: strokes,
       currentPoints: {
         color: this.state.strokeColor,
         width: this.state.strokeWidth,
@@ -1030,9 +1184,9 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
         points: []
       },
       tracker: this.state.tracker - 1,
-    })
+    });
 
-    this._onChangeStrokes([...strokes])
+    this._onChangeStrokes(strokes);
   }
 
   changeColor = (color: string) => {
@@ -1640,6 +1794,520 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     this._onChangeStrokes([...strokes, points])
   }
 
+  // ============ POINTER EVENTS (for Samsung S-Pen, Apple Pencil, etc.) ============
+  
+  // Check if input should be allowed based on penOnly mode and pointer type
+  isInputAllowed = (pointerType: string): boolean => {
+    if (!this.state.penOnly) return true;
+    // In penOnly mode, only allow 'pen' (stylus) and 'mouse' (for desktop)
+    return pointerType === 'pen' || pointerType === 'mouse';
+  }
+
+  // Calculate distance between two pointers for pinch-to-zoom
+  getPointerDistance = (pointers: Map<number, { x: number, y: number, type: string }>): number => {
+    const values = Array.from(pointers.values());
+    if (values.length < 2) return 0;
+    const dx = values[1].x - values[0].x;
+    const dy = values[1].y - values[0].y;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  // Get center point between pointers
+  getPointerCenter = (pointers: Map<number, { x: number, y: number, type: string }>): { x: number, y: number } => {
+    const values = Array.from(pointers.values());
+    if (values.length === 0) return { x: 0, y: 0 };
+    if (values.length === 1) return { x: values[0].x, y: values[0].y };
+    return {
+      x: (values[0].x + values[1].x) / 2,
+      y: (values[0].y + values[1].y) / 2
+    };
+  }
+
+  onPointerDown = (evt: PointerEvent<HTMLCanvasElement>) => {
+    // Prevent browser default touch behaviors (scrolling, pull-to-refresh)
+    evt.preventDefault();
+    evt.stopPropagation();
+    
+    const { currentMode, penOnly, activePointers } = this.state;
+    const pointerType = evt.pointerType; // 'pen', 'touch', or 'mouse'
+    
+    // Track this pointer
+    const newPointers = new Map(activePointers);
+    newPointers.set(evt.pointerId, { x: evt.clientX, y: evt.clientY, type: pointerType });
+    
+    try {
+      (evt.target as HTMLCanvasElement).setPointerCapture(evt.pointerId);
+    } catch {
+      // Some browsers may not support pointer capture
+    }
+    
+    // Multi-touch handling (two or more fingers)
+    if (newPointers.size >= 2 && this.props.enablePan) {
+      // Cancel any ongoing drawing
+      this.dragging = false;
+      
+      const distance = this.getPointerDistance(newPointers);
+      const center = this.getPointerCenter(newPointers);
+      
+      this.setState({
+        activePointers: newPointers,
+        isPanning: true,
+        lastPanPoint: center,
+        lastPinchDistance: distance,
+        // Clear single pointer tracking when multi-touch starts
+        activePointerId: null,
+        activePointerType: null,
+        // Cancel drawing state
+        currentPoints: {
+          ...this.state.currentPoints,
+          points: []
+        }
+      });
+      return;
+    }
+    
+    // In penOnly mode with touch input, use touch for panning only
+    if (penOnly && pointerType === 'touch') {
+      if (this.props.enablePan) {
+        this.setState({
+          isPanning: true,
+          lastPanPoint: { x: evt.clientX, y: evt.clientY },
+          activePointerId: evt.pointerId,
+          activePointerType: pointerType,
+          activePointers: newPointers
+        });
+      }
+      return;
+    }
+    
+    // If we already have an active pointer for drawing, ignore new pointers (except for multi-touch)
+    // But allow new pointer if no active manipulation is happening
+    const isManipulating = this.dragging || 
+      this.state.isDraggingImage || 
+      this.state.isResizingImage || 
+      this.state.isDraggingDimension || 
+      this.state.isResizingDimension || 
+      this.state.isDimensionDrawing ||
+      this.state.isPanning;
+    
+    if (this.state.activePointerId !== null && newPointers.size === 1 && isManipulating) {
+      this.setState({ activePointers: newPointers });
+      return;
+    }
+    
+    // Track this pointer as the active drawing pointer
+    this.setState({
+      activePointerId: evt.pointerId,
+      activePointerType: pointerType,
+      activePointers: newPointers
+    });
+    
+    // Middle mouse button for pan (always works)
+    if (evt.button === 1 && this.props.enablePan) {
+      evt.preventDefault();
+      this.setState({
+        isPanning: true,
+        lastPanPoint: { x: evt.clientX, y: evt.clientY }
+      });
+      return;
+    }
+    
+    // Handle hand mode - left click/tap pans
+    if (currentMode === 'hand' && evt.button === 0) {
+      evt.preventDefault();
+      this.setState({
+        isPanning: true,
+        lastPanPoint: { x: evt.clientX, y: evt.clientY }
+      });
+      return;
+    }
+    
+    // Handle dimension mode - start drawing dimension
+    if (currentMode === 'dimension' && evt.button === 0) {
+      const coords = this.screenToCanvas(evt.clientX, evt.clientY);
+      const tempDim = createDimension(coords.x, coords.y, coords.x, coords.y, '', this.props.dimensionColor);
+      this.setState({
+        isDimensionDrawing: true,
+        dimensionStart: coords,
+        tempDimension: tempDim
+      });
+      return;
+    }
+    
+    // Handle eraser mode
+    if (currentMode === 'eraser' && evt.button === 0) {
+      this.dragging = true;
+      const coords = this.screenToCanvas(evt.clientX, evt.clientY);
+      this.eraseAtPoint(coords.x, coords.y);
+      return;
+    }
+    
+    // Handle mouse mode - for selecting images/dimensions/strokes
+    if (currentMode === 'mouse' && evt.button === 0) {
+      const coords = this.screenToCanvas(evt.clientX, evt.clientY);
+      
+      // First, check if clicking on resize handles for already selected image
+      const resizeHandle = this.findImageResizeHandleAtPoint(coords.x, coords.y);
+      if (resizeHandle) {
+        const img = this.state.sketchImages.find(i => i.id === resizeHandle.imageId);
+        if (img) {
+          this.setState({
+            isResizingImage: true,
+            resizeHandle: resizeHandle.handle,
+            imageStartPos: { x: img.x, y: img.y },
+            imageStartSize: { width: img.width, height: img.height },
+            imageDragStart: coords
+          });
+          return;
+        }
+      }
+      
+      // Check if clicking on dimension handles for already selected dimension
+      const dimHandle = this.findDimensionHandleAtPoint(coords.x, coords.y);
+      if (dimHandle) {
+        const dim = this.state.dimensions.find(d => d.id === dimHandle.dimensionId);
+        if (dim) {
+          if (dimHandle.handle === 'body') {
+            // Start dragging the whole dimension
+            this.setState({
+              isDraggingDimension: true,
+              dimensionStartData: { ...dim },
+              dimensionDragStart: coords
+            });
+          } else {
+            // Start resizing from start or end handle
+            this.setState({
+              isResizingDimension: true,
+              dimensionResizeHandle: dimHandle.handle,
+              dimensionStartData: { ...dim },
+              dimensionDragStart: coords
+            });
+          }
+          return;
+        }
+      }
+      
+      // Check if clicking on a selected image body (for dragging)
+      if (this.state.selectedImageId) {
+        const selectedImg = this.state.sketchImages.find(i => i.id === this.state.selectedImageId);
+        if (selectedImg && 
+            coords.x >= selectedImg.x && coords.x <= selectedImg.x + selectedImg.width &&
+            coords.y >= selectedImg.y && coords.y <= selectedImg.y + selectedImg.height) {
+          this.setState({
+            isDraggingImage: true,
+            imageStartPos: { x: selectedImg.x, y: selectedImg.y },
+            imageDragStart: coords
+          });
+          return;
+        }
+      }
+      
+      // Check if clicking on an image (to select it)
+      const clickedImage = this.findImageAtPoint(coords.x, coords.y);
+      if (clickedImage) {
+        this.setState({ 
+          selectedImageId: clickedImage.id, 
+          selectedDimensionId: null, 
+          selectedStrokeIndex: null,
+          isDraggingImage: true,
+          imageStartPos: { x: clickedImage.x, y: clickedImage.y },
+          imageDragStart: coords
+        });
+        return;
+      }
+      
+      // Check if clicking on a dimension
+      const clickedDimension = this.findDimensionAtPoint(coords.x, coords.y);
+      if (clickedDimension) {
+        // If clicking on an already-selected dimension, start dragging
+        if (this.state.selectedDimensionId === clickedDimension.id) {
+          this.setState({
+            isDraggingDimension: true,
+            dimensionStartData: { ...clickedDimension },
+            dimensionDragStart: coords
+          });
+        } else {
+          this.setState({ 
+            selectedDimensionId: clickedDimension.id, 
+            selectedStrokeIndex: null, 
+            selectedImageId: null 
+          });
+        }
+        return;
+      }
+      
+      // Check if clicking on a stroke
+      const clickedStrokeIndex = this.findStrokeAtPoint(coords.x, coords.y);
+      if (clickedStrokeIndex >= 0) {
+        this.setState({ 
+          selectedStrokeIndex: clickedStrokeIndex, 
+          selectedDimensionId: null, 
+          selectedImageId: null 
+        });
+        return;
+      }
+      
+      // Clicked on empty space - deselect all
+      this.setState({ selectedDimensionId: null, selectedStrokeIndex: null, selectedImageId: null });
+      return;
+    }
+    
+    // Default: pen mode
+    if (currentMode === 'pen') {
+      this.dragging = true;
+      const coords = this.screenToCanvas(evt.clientX, evt.clientY);
+      const newCurrentPoints = {
+        ...this.state.currentPoints,
+        points: [new Point(coords.x, coords.y, evt.timeStamp)]
+      };
+      this.setState({ currentPoints: newCurrentPoints });
+    }
+  }
+
+  onPointerMove = (evt: PointerEvent<HTMLCanvasElement>) => {
+    // Prevent browser default touch behaviors
+    evt.preventDefault();
+    
+    const { currentMode, activePointers } = this.state;
+    
+    // Update pointer position in map
+    if (activePointers.has(evt.pointerId)) {
+      const newPointers = new Map(activePointers);
+      const existing = newPointers.get(evt.pointerId)!;
+      newPointers.set(evt.pointerId, { ...existing, x: evt.clientX, y: evt.clientY });
+      
+      // Handle multi-touch pan/zoom
+      if (newPointers.size >= 2 && this.props.enablePan && this.state.isPanning) {
+        const center = this.getPointerCenter(newPointers);
+        const distance = this.getPointerDistance(newPointers);
+        
+        // Pan
+        if (this.state.lastPanPoint) {
+          const dx = center.x - this.state.lastPanPoint.x;
+          const dy = center.y - this.state.lastPanPoint.y;
+          
+          let newPanX = this.state.panX + dx;
+          let newPanY = this.state.panY + dy;
+          let newScale = this.state.scale;
+          
+          // Zoom
+          if (this.state.lastPinchDistance && this.props.enableZoom) {
+            const scaleFactor = distance / this.state.lastPinchDistance;
+            newScale = this.state.scale * scaleFactor;
+            
+            // Apply zoom limits
+            const minZoom = this.props.minZoom ?? 0.1;
+            const maxZoom = this.props.maxZoom ?? 10;
+            newScale = Math.max(minZoom, Math.min(maxZoom, newScale));
+            
+            // Adjust pan to zoom around center point
+            if (newScale !== this.state.scale) {
+              const rect = this.drawer?.getBoundingClientRect();
+              if (rect) {
+                const mouseX = center.x - rect.left;
+                const mouseY = center.y - rect.top;
+                const scaleChange = newScale / this.state.scale;
+                newPanX = mouseX - (mouseX - this.state.panX) * scaleChange;
+                newPanY = mouseY - (mouseY - this.state.panY) * scaleChange;
+              }
+            }
+          }
+          
+          this.setState({
+            activePointers: newPointers,
+            panX: newPanX,
+            panY: newPanY,
+            scale: newScale,
+            lastPanPoint: center,
+            lastPinchDistance: distance
+          });
+        }
+        return;
+      }
+      
+      this.setState({ activePointers: newPointers });
+    }
+    
+    // Only handle the active pointer for single-pointer operations
+    if (this.state.activePointerId !== evt.pointerId) return;
+    
+    // Handle panning (for finger touch in penOnly mode, or hand mode)
+    if (this.state.isPanning && this.state.lastPanPoint && activePointers.size === 1) {
+      const dx = evt.clientX - this.state.lastPanPoint.x;
+      const dy = evt.clientY - this.state.lastPanPoint.y;
+      
+      this.setState({
+        panX: this.state.panX + dx,
+        panY: this.state.panY + dy,
+        lastPanPoint: { x: evt.clientX, y: evt.clientY }
+      });
+      return;
+    }
+    
+    // Handle dimension drawing
+    if (this.state.isDimensionDrawing && this.state.dimensionStart) {
+      const coords = this.screenToCanvas(evt.clientX, evt.clientY);
+      const tempDim = createDimension(
+        this.state.dimensionStart.x,
+        this.state.dimensionStart.y,
+        coords.x,
+        coords.y,
+        '',
+        this.props.dimensionColor
+      );
+      this.setState({ tempDimension: tempDim });
+      return;
+    }
+    
+    // Handle image/dimension manipulation
+    if (currentMode === 'mouse') {
+      this.handleImageManipulation(evt.clientX, evt.clientY);
+      this.handleDimensionManipulation(evt.clientX, evt.clientY);
+      return;
+    }
+    
+    // Handle eraser (only if single pointer)
+    if (this.dragging && currentMode === 'eraser' && activePointers.size === 1) {
+      const coords = this.screenToCanvas(evt.clientX, evt.clientY);
+      this.eraseAtPoint(coords.x, coords.y);
+      return;
+    }
+    
+    // Handle pen drawing (only if single pointer)
+    if (this.dragging && currentMode === 'pen' && activePointers.size === 1) {
+      const coords = this.screenToCanvas(evt.clientX, evt.clientY);
+      const newCurrentPoints = {
+        ...this.state.currentPoints,
+        points: [...this.state.currentPoints.points, new Point(coords.x, coords.y, evt.timeStamp)]
+      };
+      this.setState({ currentPoints: newCurrentPoints });
+    }
+  }
+
+  onPointerUp = (evt: PointerEvent<HTMLCanvasElement>) => {
+    const { activePointers } = this.state;
+    
+    // Remove this pointer from tracking
+    const newPointers = new Map(activePointers);
+    newPointers.delete(evt.pointerId);
+    
+    // Release pointer capture
+    try {
+      (evt.target as HTMLCanvasElement).releasePointerCapture(evt.pointerId);
+    } catch {
+      // Ignore if pointer was already released
+    }
+    
+    // If there are still multiple pointers, continue multi-touch
+    if (newPointers.size >= 2) {
+      const center = this.getPointerCenter(newPointers);
+      const distance = this.getPointerDistance(newPointers);
+      this.setState({
+        activePointers: newPointers,
+        lastPanPoint: center,
+        lastPinchDistance: distance
+      });
+      return;
+    }
+    
+    // If only one pointer remains, reset to single-pointer mode
+    if (newPointers.size === 1) {
+      const remainingPointer = Array.from(newPointers.entries())[0];
+      this.setState({
+        activePointers: newPointers,
+        activePointerId: remainingPointer[0],
+        activePointerType: remainingPointer[1].type,
+        lastPanPoint: { x: remainingPointer[1].x, y: remainingPointer[1].y },
+        lastPinchDistance: null
+      });
+      return;
+    }
+    
+    // All pointers released
+    this.setState({
+      activePointers: newPointers,
+      activePointerId: null,
+      activePointerType: null,
+      lastPinchDistance: null
+    });
+    
+    // Only process release logic for the originally active pointer
+    if (this.state.activePointerId !== evt.pointerId && !this.state.isPanning) return;
+    
+    // End dimension drawing
+    if (this.state.isDimensionDrawing && this.state.tempDimension) {
+      const { tempDimension } = this.state;
+      const dx = tempDimension.endX - tempDimension.startX;
+      const dy = tempDimension.endY - tempDimension.startY;
+      const length = Math.sqrt(dx * dx + dy * dy);
+      
+      if (length > 5) {
+        this.setState({
+          isDimensionDrawing: false,
+          dimensionStart: null,
+          pendingDimension: tempDimension,
+          showDimensionModal: true,
+          isPanning: false,
+          lastPanPoint: null
+        });
+      } else {
+        this.setState({
+          isDimensionDrawing: false,
+          dimensionStart: null,
+          tempDimension: null,
+          isPanning: false,
+          lastPanPoint: null
+        });
+      }
+      return;
+    }
+    
+    // End panning
+    if (this.state.isPanning) {
+      this.setState({
+        isPanning: false,
+        lastPanPoint: null
+      });
+    }
+    
+    // End image/dimension manipulation
+    this.endImageManipulation();
+    this.endDimensionManipulation();
+    
+    // End pen drawing
+    if (this.dragging) {
+      this.dragging = false;
+      
+      const strokes = this.state.previousStrokes;
+      if (this.state.currentPoints.points.length < 1) return;
+      
+      const { height, width } = this.state;
+      const points = this.state.currentPoints;
+      points.box = { height, width };
+      
+      this.state.pen.addStroke(points);
+      
+      this.setState({
+        previousStrokes: [...strokes, points],
+        currentPoints: {
+          color: this.state.strokeColor,
+          width: this.state.strokeWidth,
+          box: { height, width },
+          points: []
+        },
+        tracker: this.state.tracker + 1
+      });
+      this._onChangeStrokes([...strokes, points]);
+    }
+  }
+
+  onPointerCancel = (evt: PointerEvent<HTMLCanvasElement>) => {
+    // Treat cancel same as up
+    this.onPointerUp(evt);
+  }
+
+  // ============ END POINTER EVENTS ============
+
   updateSvgPosition = () => {
     const { height, width, left, top } = this.drawer?.getBoundingClientRect() || { height: 0, width: 0, left: 0, top: 0 };
     const dimensionsChanged = this.state.height !== height || this.state.width !== width;
@@ -1661,9 +2329,15 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     document.addEventListener('fullscreenchange', this.handleFullscreenChange);
     document.addEventListener('mousemove', this.handleGlobalMouseMove);
     document.addEventListener('mouseup', this.handleGlobalMouseUp);
+    document.addEventListener('pointermove', this.handleGlobalPointerMove);
+    document.addEventListener('pointerup', this.handleGlobalPointerUp);
+    document.addEventListener('pointercancel', this.handleGlobalPointerUp);
     document.addEventListener('keydown', this.handleKeyDown);
     // Prevent browser zoom on Ctrl+scroll
     this.containerElement?.addEventListener('wheel', this.preventBrowserZoom, { passive: false });
+    // Prevent browser default touch behaviors (scrolling, pull-to-refresh)
+    this.containerElement?.addEventListener('touchmove', this.preventTouchDefault, { passive: false });
+    this.containerElement?.addEventListener('touchstart', this.preventTouchDefault, { passive: false });
     this.updateSvgPosition();
     
     // Initialize pen with initial strokes if provided
@@ -1686,13 +2360,26 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     document.removeEventListener('fullscreenchange', this.handleFullscreenChange);
     document.removeEventListener('mousemove', this.handleGlobalMouseMove);
     document.removeEventListener('mouseup', this.handleGlobalMouseUp);
+    document.removeEventListener('pointermove', this.handleGlobalPointerMove);
+    document.removeEventListener('pointerup', this.handleGlobalPointerUp);
+    document.removeEventListener('pointercancel', this.handleGlobalPointerUp);
     document.removeEventListener('keydown', this.handleKeyDown);
     this.containerElement?.removeEventListener('wheel', this.preventBrowserZoom);
+    this.containerElement?.removeEventListener('touchmove', this.preventTouchDefault);
+    this.containerElement?.removeEventListener('touchstart', this.preventTouchDefault);
   }
 
   preventBrowserZoom = (e: globalThis.WheelEvent) => {
     // Prevent browser's native Ctrl+scroll zoom when we're handling zoom
     if (this.props.enableZoom && e.ctrlKey) {
+      e.preventDefault();
+    }
+  }
+
+  preventTouchDefault = (e: Event) => {
+    // Prevent browser default touch behaviors (scrolling, pull-to-refresh)
+    // Only prevent if the whiteboard is enabled
+    if (this.props.enabled !== false) {
       e.preventDefault();
     }
   }
@@ -1733,6 +2420,24 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
   }
 
   handleGlobalMouseUp = () => {
+    if (this.state.isDraggingImage || this.state.isResizingImage) {
+      this.endImageManipulation();
+    }
+    if (this.state.isDraggingDimension || this.state.isResizingDimension) {
+      this.endDimensionManipulation();
+    }
+  }
+
+  handleGlobalPointerMove = (e: globalThis.PointerEvent) => {
+    if (this.state.isDraggingImage || this.state.isResizingImage) {
+      this.handleImageManipulation(e.clientX, e.clientY);
+    }
+    if (this.state.isDraggingDimension || this.state.isResizingDimension) {
+      this.handleDimensionManipulation(e.clientX, e.clientY);
+    }
+  }
+
+  handleGlobalPointerUp = () => {
     if (this.state.isDraggingImage || this.state.isResizingImage) {
       this.endImageManipulation();
     }
@@ -1833,14 +2538,16 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       flex: 1,
       display: 'flex',
       position: 'relative',
-      overflow: 'hidden'
+      overflow: 'hidden',
+      touchAction: 'none'
     }
     else props.style = {
       ...props.style,
       flex: 1,
       display: 'flex',
       position: 'relative',
-      overflow: 'hidden'
+      overflow: 'hidden',
+      touchAction: 'none'
     }
     delete props.ref;
 
@@ -1857,6 +2564,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     if (currentMode === 'hand') cursorStyle = this.state.isPanning ? 'grabbing' : 'grab';
     else if (currentMode === 'mouse') cursorStyle = 'default';
     else if (currentMode === 'dimension') cursorStyle = 'crosshair';
+    else if (currentMode === 'eraser') cursorStyle = 'crosshair'; // Could use custom cursor
 
     return (<div
       {...props}
@@ -1901,10 +2609,11 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
                 transform={img.rotation ? `rotate(${img.rotation} ${img.x + img.width / 2} ${img.y + img.height / 2})` : undefined}
                 style={{ 
                   cursor: selectedImageId === img.id ? 'move' : (currentMode === 'mouse' ? 'pointer' : 'default'),
-                  pointerEvents: selectedImageId === img.id ? 'all' : 'none'
+                  pointerEvents: selectedImageId === img.id ? 'all' : 'none',
+                  touchAction: 'none'
                 }}
                 onContextMenu={(e) => e.preventDefault()}
-                onMouseDown={(e) => this.onImageMouseDown(e as unknown as React.MouseEvent, img.id)}
+                onPointerDown={(e) => this.onImagePointerDown(e, img.id)}
               />
               {selectedImageId === img.id && (
                 <>
@@ -1943,10 +2652,11 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
                         strokeWidth={1 / scale}
                         style={{ 
                           cursor: handle === 'nw' || handle === 'se' ? 'nwse-resize' : 'nesw-resize',
-                          pointerEvents: 'all'
+                          pointerEvents: 'all',
+                          touchAction: 'none'
                         }}
                         onContextMenu={(e) => e.preventDefault()}
-                        onMouseDown={(e) => this.onResizeHandleMouseDown(e as unknown as React.MouseEvent, img.id, handle)}
+                        onPointerDown={(e) => this.onResizeHandlePointerDown(e, img.id, handle)}
                       />
                     );
                   })}
@@ -2058,12 +2768,10 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       {/* Transparent canvas for capturing events */}
       <canvas
         ref={drawer => { this.drawer = drawer }}
-        onTouchStart={this.handleTouchStart}
-        onTouchMove={this.onResponderMove}
-        onTouchEnd={this.onResponderRelease}
-        onMouseDown={this.onMouseDown}
-        onMouseMove={this.onMouseMove}
-        onMouseUp={this.onMouseUp}
+        onPointerDown={this.onPointerDown}
+        onPointerMove={this.onPointerMove}
+        onPointerUp={this.onPointerUp}
+        onPointerCancel={this.onPointerCancel}
         onWheel={this.onWheel}
         onContextMenu={(e) => e.preventDefault()}
         onDoubleClick={() => {
@@ -2089,7 +2797,9 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       {/* Delete button for selected element */}
       {(selectedImageId || selectedDimensionId || (selectedStrokeIndex !== null && selectedStrokeIndex >= 0)) && currentMode === 'mouse' && (
         <button
-          onClick={() => {
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerUp={(e) => {
+            e.stopPropagation();
             if (selectedImageId) {
               this.deleteSelectedImage();
             } else if (selectedDimensionId) {
@@ -2113,7 +2823,8 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+            boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+            touchAction: 'manipulation'
           }}
           title="Elimina elemento selezionato"
         >
