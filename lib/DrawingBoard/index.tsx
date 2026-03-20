@@ -72,6 +72,13 @@ export interface DrawingBoardProps {
     penOnlyActive?: string;
     instructions?: string;
     eraser?: string;
+    gallery?: string;
+    camera?: string;
+    highlighter?: string;
+    clearConfirm?: string;
+    clearConfirmTitle?: string;
+    clearConfirmYes?: string;
+    clearConfirmNo?: string;
   };
 }
 
@@ -118,10 +125,28 @@ const defaultLabels = {
   modeLabel: 'Modalità',
   penOnlyActive: 'Solo Penna attivo',
   instructions: 'Ctrl + rotellina per zoom, tasto centrale o due dita per spostarsi',
-  eraser: 'Gomma'
+  eraser: 'Gomma',
+  gallery: 'Galleria',
+  camera: 'Fotocamera',
+  highlighter: 'Evidenziatore',
+  clearConfirm: 'Sei sicuro di voler cancellare tutto?',
+  clearConfirmTitle: 'Conferma',
+  clearConfirmYes: 'Sì, cancella',
+  clearConfirmNo: 'Annulla'
 };
 
-const defaultColorPalette = ['#000000', '#ffffff', '#ef4444', '#22c55e', '#3b82f6', '#eab308', '#a855f7', '#ec4899', '#f97316', '#06b6d4'];
+const defaultColorPalette = [
+  // Neutrals
+  '#000000', '#404040', '#808080', '#c0c0c0', '#ffffff',
+  // Warm colors
+  '#8b0000', '#ff0000', '#ff4500', '#ff8c00', '#ffa500',
+  // Yellow-Green
+  '#ffd700', '#ffff00', '#adff2f', '#32cd32', '#228b22',
+  // Cool colors
+  '#20b2aa', '#00ced1', '#00bfff', '#1e90ff', '#0000ff',
+  // Purple-Pink
+  '#4b0082', '#8b00ff', '#9400d3', '#ff00ff', '#ff69b4'
+];
 
 /**
  * DrawingBoard - A complete, ready-to-use drawing board component
@@ -170,8 +195,10 @@ const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [strokeColor, setStrokeColor] = useState(defaultPenColor);
   const [strokeWidth, setStrokeWidth] = useState(defaultPenWidth);
+  //const [_, setStrokeOpacity] = useState(1);
   const [mode, setMode] = useState<WhiteboardMode>('pen');
   const [penOnly, setPenOnly] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   const labels = { ...defaultLabels, ...customLabels };
 
@@ -200,6 +227,11 @@ const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
   const handleStrokeWidthChange = (width: number) => {
     setStrokeWidth(width);
     whiteboard.current?.changeStrokeWidth(width);
+  };
+
+  const handleStrokeOpacityChange = (opacity: number) => {
+    //setStrokeOpacity(opacity);
+    whiteboard.current?.changeStrokeOpacity(opacity);
   };
 
   const handleImageUpload = (src: string) => {
@@ -243,6 +275,8 @@ const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
       case 'hand': return labels.hand;
       case 'dimension': return labels.dimension;
       case 'mouse': return labels.select;
+      case 'highlighter': return labels.highlighter;
+      case 'eraser': return labels.eraser;
       default: return '';
     }
   };
@@ -261,6 +295,48 @@ const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
       onClick: () => {
         setMode('pen');
         whiteboard.current?.setMode('pen');
+        // Reset to pen defaults
+        handleStrokeWidthChange(defaultPenWidth);
+        handleStrokeOpacityChange(1);
+      }
+    },
+    {
+      id: 'highlighterMode',
+      label: labels.highlighter,
+      active: mode === 'highlighter',
+      icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={mode === 'highlighter' ? "#fbbf24" : "currentColor"} strokeWidth="1.5">
+          {/* Highlighter body - angled rectangle */}
+          <path 
+            d="M15 4L20 9L12 17L7 12L15 4Z" 
+            fill={mode === 'highlighter' ? "rgba(251, 191, 36, 0.5)" : "none"} 
+            strokeLinejoin="round"
+          />
+          {/* Highlighter tip */}
+          <path 
+            d="M12 17L7 12L4 19L12 17Z" 
+            fill={mode === 'highlighter' ? "#fbbf24" : "none"} 
+            strokeLinejoin="round"
+          />
+          {/* Cap/top */}
+          <path d="M15 4L17 2L22 7L20 9" strokeLinecap="round" strokeLinejoin="round" />
+          {/* Highlight line underneath to show the effect */}
+          <path 
+            d="M3 21H14" 
+            stroke={mode === 'highlighter' ? "#fbbf24" : "currentColor"} 
+            strokeWidth="3" 
+            strokeLinecap="round"
+            opacity={mode === 'highlighter' ? "0.5" : "0.3"}
+          />
+        </svg>
+      ),
+      onClick: () => {
+        // When switching to highlighter, set default highlighter settings
+        setMode('highlighter');
+        whiteboard.current?.setMode('highlighter');
+        // Set highlighter defaults: larger width, lower opacity
+        handleStrokeWidthChange(20);
+        handleStrokeOpacityChange(0.4);
       }
     },
     {
@@ -387,6 +463,11 @@ const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
       type: 'file',
       accept: 'image/*',
       onChange: (value) => handleImageUpload(value as string),
+      showCameraOption: true,
+      cameraLabels: {
+        gallery: labels.gallery,
+        camera: labels.camera
+      },
       icon: (
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -414,7 +495,7 @@ const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
           <path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
         </svg>
       ),
-      onClick: () => whiteboard.current?.clear()
+      onClick: () => setShowClearConfirm(true)
     },
     {
       id: 'grid',
@@ -536,6 +617,90 @@ const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
         onChange={handleImport}
         style={{ display: 'none' }}
       />
+
+      {/* Clear confirmation modal */}
+      {showClearConfirm && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000
+          }}
+          onClick={() => setShowClearConfirm(false)}
+        >
+          <div
+            style={{
+              backgroundColor: 'white',
+              borderRadius: 12,
+              padding: 24,
+              minWidth: 300,
+              maxWidth: 400,
+              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ margin: '0 0 16px 0', fontSize: 18, fontWeight: 600 }}>
+              {labels.clearConfirmTitle}
+            </h3>
+            <p style={{ margin: '0 0 24px 0', color: '#666', fontSize: 14 }}>
+              {labels.clearConfirm}
+            </p>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowClearConfirm(false)}
+                style={{
+                  padding: '10px 20px',
+                  borderRadius: 8,
+                  border: '1px solid #ddd',
+                  backgroundColor: 'white',
+                  cursor: 'pointer',
+                  fontSize: 14,
+                  fontWeight: 500
+                }}
+                onMouseEnter={(e) => {
+                  (e.target as HTMLElement).style.backgroundColor = '#f5f5f5';
+                }}
+                onMouseLeave={(e) => {
+                  (e.target as HTMLElement).style.backgroundColor = 'white';
+                }}
+              >
+                {labels.clearConfirmNo}
+              </button>
+              <button
+                onClick={() => {
+                  whiteboard.current?.clear();
+                  setShowClearConfirm(false);
+                }}
+                style={{
+                  padding: '10px 20px',
+                  borderRadius: 8,
+                  border: 'none',
+                  backgroundColor: '#ef4444',
+                  color: 'white',
+                  cursor: 'pointer',
+                  fontSize: 14,
+                  fontWeight: 500
+                }}
+                onMouseEnter={(e) => {
+                  (e.target as HTMLElement).style.backgroundColor = '#dc2626';
+                }}
+                onMouseLeave={(e) => {
+                  (e.target as HTMLElement).style.backgroundColor = '#ef4444';
+                }}
+              >
+                {labels.clearConfirmYes}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 });

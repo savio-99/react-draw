@@ -6,7 +6,7 @@ import Grid from '../Grid'
 import { SketchImage, createImage, loadImageDimensions } from '../Image'
 import Dimension, { DimensionModal, DimensionData, createDimension } from '../Dimension'
 
-export type WhiteboardMode = 'pen' | 'hand' | 'dimension' | 'mouse' | 'eraser';
+export type WhiteboardMode = 'pen' | 'hand' | 'dimension' | 'mouse' | 'eraser' | 'highlighter';
 
 export interface WhiteboardData {
   version: string;
@@ -63,6 +63,7 @@ interface WhiteboardState {
   pen: Pen,
   strokeWidth: number,
   strokeColor: string,
+  strokeOpacity: number,
   height: number,
   width: number,
   px: number,
@@ -119,6 +120,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       currentPoints: {
         color: props.strokeColor || '#000000',
         width: props.strokeWidth || 4,
+        opacity: 1,
         box: { height: 0, width: 0 },
         points: []
       },
@@ -126,6 +128,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       pen: new Pen(),
       strokeWidth: props.strokeWidth || 4,
       strokeColor: props.strokeColor || '#000000',
+      strokeOpacity: 1,
       height: 0,
       width: 0,
       px: 0,
@@ -936,6 +939,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       ctx.lineWidth = stroke.width;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
+      ctx.globalAlpha = stroke.opacity ?? 1;
 
       const points = stroke.points;
       ctx.moveTo(points[0].x, points[0].y);
@@ -951,6 +955,9 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       const lastPoint = points[points.length - 1];
       ctx.lineTo(lastPoint.x, lastPoint.y);
       ctx.stroke();
+      
+      // Reset globalAlpha for next stroke
+      ctx.globalAlpha = 1;
     });
 
     // Render dimensions
@@ -1180,6 +1187,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       currentPoints: {
         color: this.state.strokeColor,
         width: this.state.strokeWidth,
+        opacity: this.state.strokeOpacity,
         box: { height, width },
         points: []
       },
@@ -1190,15 +1198,24 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
   }
 
   changeColor = (color: string) => {
-    const { currentPoints } = this.state;
-    currentPoints.color = color;
-    this.setState({ currentPoints, strokeColor: color })
+    this.setState(prevState => ({
+      currentPoints: { ...prevState.currentPoints, color },
+      strokeColor: color
+    }));
   }
 
-  changeStrokeWidth = (stroke: number) => {
-    const { currentPoints } = this.state;
-    currentPoints.width = stroke;
-    this.setState({ currentPoints, strokeWidth: stroke })
+  changeStrokeWidth = (width: number) => {
+    this.setState(prevState => ({
+      currentPoints: { ...prevState.currentPoints, width },
+      strokeWidth: width
+    }));
+  }
+
+  changeStrokeOpacity = (opacity: number) => {
+    this.setState(prevState => ({
+      currentPoints: { ...prevState.currentPoints, opacity },
+      strokeOpacity: opacity
+    }));
   }
 
   _onChangeStrokes = (strokes: Stroke[]) => {
@@ -1212,6 +1229,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       currentPoints: {
         color: this.state.strokeColor,
         width: this.state.strokeWidth,
+        opacity: this.state.strokeOpacity,
         box: { height, width },
         points: []
       },
@@ -1234,6 +1252,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       currentPoints: {
         color: this.state.strokeColor,
         width: this.state.strokeWidth,
+        opacity: this.state.strokeOpacity,
         box: { height, width },
         points: []
       },
@@ -1786,6 +1805,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       currentPoints: {
         color: this.state.strokeColor,
         width: this.state.strokeWidth,
+        opacity: this.state.strokeOpacity,
         box: { height, width },
         points: []
       },
@@ -2062,6 +2082,17 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       };
       this.setState({ currentPoints: newCurrentPoints });
     }
+    
+    // Highlighter mode (like pen but with different default settings)
+    if (currentMode === 'highlighter') {
+      this.dragging = true;
+      const coords = this.screenToCanvas(evt.clientX, evt.clientY);
+      const newCurrentPoints = {
+        ...this.state.currentPoints,
+        points: [new Point(coords.x, coords.y, evt.timeStamp)]
+      };
+      this.setState({ currentPoints: newCurrentPoints });
+    }
   }
 
   onPointerMove = (evt: PointerEvent<HTMLCanvasElement>) => {
@@ -2182,6 +2213,16 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       };
       this.setState({ currentPoints: newCurrentPoints });
     }
+    
+    // Handle highlighter drawing (only if single pointer)
+    if (this.dragging && currentMode === 'highlighter' && activePointers.size === 1) {
+      const coords = this.screenToCanvas(evt.clientX, evt.clientY);
+      const newCurrentPoints = {
+        ...this.state.currentPoints,
+        points: [...this.state.currentPoints.points, new Point(coords.x, coords.y, evt.timeStamp)]
+      };
+      this.setState({ currentPoints: newCurrentPoints });
+    }
   }
 
   onPointerUp = (evt: PointerEvent<HTMLCanvasElement>) => {
@@ -2292,6 +2333,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
         currentPoints: {
           color: this.state.strokeColor,
           width: this.state.strokeWidth,
+          opacity: this.state.strokeOpacity,
           box: { height, width },
           points: []
         },
@@ -2688,7 +2730,10 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
             d={pen.pointsToSvg(currentPoints, { height, width }, true)}
             stroke={currentPoints.color}
             strokeWidth={adjustedStrokeWidth}
-            fill="none" />
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+            opacity={currentPoints.opacity ?? 1} />
           
           {/* Selection indicator for selected stroke */}
           {this.state.selectedStrokeIndex !== null && this.state.selectedStrokeIndex >= 0 && previousStrokes[this.state.selectedStrokeIndex] && (() => {
@@ -2798,8 +2843,20 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       {(selectedImageId || selectedDimensionId || (selectedStrokeIndex !== null && selectedStrokeIndex >= 0)) && currentMode === 'mouse' && (
         <button
           onPointerDown={(e) => e.stopPropagation()}
-          onPointerUp={(e) => {
+          onClick={(e) => {
             e.stopPropagation();
+            e.preventDefault();
+            if (selectedImageId) {
+              this.deleteSelectedImage();
+            } else if (selectedDimensionId) {
+              this.deleteSelectedDimension();
+            } else if (selectedStrokeIndex !== null && selectedStrokeIndex >= 0) {
+              this.deleteSelectedStroke();
+            }
+          }}
+          onTouchEnd={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
             if (selectedImageId) {
               this.deleteSelectedImage();
             } else if (selectedDimensionId) {

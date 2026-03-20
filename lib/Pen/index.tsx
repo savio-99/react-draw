@@ -76,7 +76,10 @@ export default class Pen {
         d={this.pointsToSvg(e, currentBox, useAbsoluteCoords)}
         stroke={e.color}
         strokeWidth={adjustedWidth}
-        fill="none" />)
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+        opacity={e.opacity ?? 1} />)
       })}
     </g>) as React.ReactElement;
   }

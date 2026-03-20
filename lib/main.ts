@@ -19,6 +19,7 @@ type Stroke = {
   points: Point[],
   color: string,
   width: number,
+  opacity?: number,
 }
 
 export { Pen, Point, Grid, FloatingToolbox, createImage, loadImageDimensions, Dimension, DimensionModal, createDimension, DrawingBoard };
