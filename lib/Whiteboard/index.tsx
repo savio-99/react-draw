@@ -111,6 +111,9 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
 
   drawer: HTMLCanvasElement | null = null;
   containerElement: HTMLDivElement | null = null;
+  longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  longPressStartPoint: { x: number, y: number } | null = null;
+  pinchResizeStartDistance: number | null = null;
 
   constructor(props: WhiteboardProps) {
     super(props)
@@ -237,10 +240,27 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
         imgHeight = dimensions.height * ratio;
       }
 
+      // Calculate position, offsetting if overlapping with existing images
+      let imgX = x ?? (this.state.width - imgWidth) / 2;
+      let imgY = y ?? (this.state.height - imgHeight) / 2;
+      if (x === undefined && y === undefined) {
+        const offset = 30;
+        let attempts = 0;
+        while (attempts < 20) {
+          const overlapping = this.state.sketchImages.some(img =>
+            Math.abs(img.x - imgX) < offset && Math.abs(img.y - imgY) < offset
+          );
+          if (!overlapping) break;
+          imgX += offset;
+          imgY += offset;
+          attempts++;
+        }
+      }
+
       const newImage = createImage(
         src,
-        x ?? (this.state.width - imgWidth) / 2,
-        y ?? (this.state.height - imgHeight) / 2,
+        imgX,
+        imgY,
         imgWidth,
         imgHeight
       );
@@ -391,6 +411,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     if (this.state.isDraggingImage || this.state.isResizingImage) {
       this.props.onChangeImages?.(this.state.sketchImages);
     }
+    this.pinchResizeStartDistance = null;
     this.setState({
       isDraggingImage: false,
       isResizingImage: false,
@@ -403,6 +424,57 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
 
   deselectImage = () => {
     this.setState({ selectedImageId: null });
+  }
+
+  startLongPress = (clientX: number, clientY: number) => {
+    this.cancelLongPress();
+    this.longPressStartPoint = { x: clientX, y: clientY };
+    this.longPressTimer = setTimeout(() => {
+      this.longPressTimer = null;
+      this.longPressStartPoint = null;
+      const coords = this.screenToCanvas(clientX, clientY);
+
+      // Check for image at this point
+      const image = this.findImageAtPoint(coords.x, coords.y);
+      if (image) {
+        this.dragging = false;
+        this.setState({
+          currentMode: 'mouse',
+          selectedImageId: image.id,
+          selectedDimensionId: null,
+          selectedStrokeIndex: null,
+          isDraggingImage: true,
+          imageStartPos: { x: image.x, y: image.y },
+          imageDragStart: coords,
+          currentPoints: { ...this.state.currentPoints, points: [] }
+        });
+        this.props.onModeChange?.('mouse');
+        return;
+      }
+
+      // Check for dimension at this point
+      const dimension = this.findDimensionAtPoint(coords.x, coords.y);
+      if (dimension) {
+        this.dragging = false;
+        this.setState({
+          currentMode: 'mouse',
+          selectedDimensionId: dimension.id,
+          selectedImageId: null,
+          selectedStrokeIndex: null,
+          currentPoints: { ...this.state.currentPoints, points: [] }
+        });
+        this.props.onModeChange?.('mouse');
+        return;
+      }
+    }, 500);
+  }
+
+  cancelLongPress = () => {
+    if (this.longPressTimer) {
+      clearTimeout(this.longPressTimer);
+      this.longPressTimer = null;
+    }
+    this.longPressStartPoint = null;
   }
 
   getImages = () => {
@@ -1865,13 +1937,43 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
     if (newPointers.size >= 2 && this.props.enablePan) {
       // Cancel any ongoing drawing
       this.dragging = false;
+      this.cancelLongPress();
       
       const distance = this.getPointerDistance(newPointers);
       const center = this.getPointerCenter(newPointers);
       
+      // If an image is selected in mouse mode, use pinch to resize instead of pan/zoom
+      if (this.state.selectedImageId && this.state.currentMode === 'mouse') {
+        const img = this.state.sketchImages.find(i => i.id === this.state.selectedImageId);
+        if (img) {
+          this.pinchResizeStartDistance = distance;
+          this.setState({
+            activePointers: newPointers,
+            isResizingImage: true,
+            isDraggingImage: false,
+            isPanning: false,
+            imageStartSize: { width: img.width, height: img.height },
+            imageStartPos: { x: img.x, y: img.y },
+            imageDragStart: null,
+            resizeHandle: null,
+            lastPinchDistance: distance,
+            lastPanPoint: center,
+            activePointerId: null,
+            activePointerType: null,
+            currentPoints: {
+              ...this.state.currentPoints,
+              points: []
+            }
+          });
+          return;
+        }
+      }
+      
       this.setState({
         activePointers: newPointers,
         isPanning: true,
+        isDraggingImage: false,
+        isResizingImage: false,
         lastPanPoint: center,
         lastPinchDistance: distance,
         // Clear single pointer tracking when multi-touch starts
@@ -1898,6 +2000,11 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
         });
       }
       return;
+    }
+    
+    // Start long-press detection for touch (to auto-select images/dimensions)
+    if (pointerType === 'touch' && currentMode !== 'mouse' && currentMode !== 'hand') {
+      this.startLongPress(evt.clientX, evt.clientY);
     }
     
     // If we already have an active pointer for drawing, ignore new pointers (except for multi-touch)
@@ -2107,6 +2214,44 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
       const existing = newPointers.get(evt.pointerId)!;
       newPointers.set(evt.pointerId, { ...existing, x: evt.clientX, y: evt.clientY });
       
+      // Cancel long-press on significant movement
+      if (this.longPressTimer && this.longPressStartPoint) {
+        const ldx = evt.clientX - this.longPressStartPoint.x;
+        const ldy = evt.clientY - this.longPressStartPoint.y;
+        if (Math.sqrt(ldx * ldx + ldy * ldy) > 10) {
+          this.cancelLongPress();
+        }
+      }
+      
+      // Handle pinch-to-resize for selected images
+      if (newPointers.size >= 2 && this.state.isResizingImage && this.state.selectedImageId && this.pinchResizeStartDistance) {
+        const distance = this.getPointerDistance(newPointers);
+        const scaleFactor = distance / this.pinchResizeStartDistance;
+        
+        if (this.state.imageStartSize && this.state.imageStartPos) {
+          const newWidth = Math.max(20, this.state.imageStartSize.width * scaleFactor);
+          const aspectRatio = this.state.imageStartSize.width / this.state.imageStartSize.height;
+          const newHeight = newWidth / aspectRatio;
+          
+          const centerX = this.state.imageStartPos.x + this.state.imageStartSize.width / 2;
+          const centerY = this.state.imageStartPos.y + this.state.imageStartSize.height / 2;
+          const newX = centerX - newWidth / 2;
+          const newY = centerY - newHeight / 2;
+          
+          const newImages = this.state.sketchImages.map(i =>
+            i.id === this.state.selectedImageId
+              ? { ...i, x: newX, y: newY, width: newWidth, height: newHeight }
+              : i
+          );
+          
+          this.setState({
+            activePointers: newPointers,
+            sketchImages: newImages
+          });
+        }
+        return;
+      }
+      
       // Handle multi-touch pan/zoom
       if (newPointers.size >= 2 && this.props.enablePan && this.state.isPanning) {
         const center = this.getPointerCenter(newPointers);
@@ -2227,6 +2372,8 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
 
   onPointerUp = (evt: PointerEvent<HTMLCanvasElement>) => {
     const { activePointers } = this.state;
+    
+    this.cancelLongPress();
     
     // Remove this pointer from tracking
     const newPointers = new Map(activePointers);
@@ -2397,6 +2544,7 @@ export default class Whiteboard extends React.Component<WhiteboardProps, Whitebo
   }
 
   componentWillUnmount(): void {
+    this.cancelLongPress();
     window.removeEventListener('scroll', this.updateSvgPosition);
     window.removeEventListener('resize', this.updateSvgPosition);
     document.removeEventListener('fullscreenchange', this.handleFullscreenChange);

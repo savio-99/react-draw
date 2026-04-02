@@ -234,8 +234,13 @@ const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
     whiteboard.current?.changeStrokeOpacity(opacity);
   };
 
-  const handleImageUpload = (src: string) => {
-    whiteboard.current?.addImage(src);
+  const handleImageUpload = async (src: string) => {
+    const newImage = await whiteboard.current?.addImage(src);
+    if (newImage) {
+      setMode('mouse');
+      whiteboard.current?.setMode('mouse');
+      whiteboard.current?.selectImage(newImage.id);
+    }
   };
 
   const handleStrokesChange = (newStrokes?: Stroke[]) => {
@@ -293,11 +298,16 @@ const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
         </svg>
       ),
       onClick: () => {
-        setMode('pen');
-        whiteboard.current?.setMode('pen');
-        // Reset to pen defaults
-        handleStrokeWidthChange(defaultPenWidth);
-        handleStrokeOpacityChange(1);
+        if (mode === 'pen') {
+          setMode('mouse');
+          whiteboard.current?.setMode('mouse');
+        } else {
+          setMode('pen');
+          whiteboard.current?.setMode('pen');
+          // Reset to pen defaults
+          handleStrokeWidthChange(defaultPenWidth);
+          handleStrokeOpacityChange(1);
+        }
       }
     },
     {
@@ -331,12 +341,17 @@ const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
         </svg>
       ),
       onClick: () => {
-        // When switching to highlighter, set default highlighter settings
-        setMode('highlighter');
-        whiteboard.current?.setMode('highlighter');
-        // Set highlighter defaults: larger width, lower opacity
-        handleStrokeWidthChange(20);
-        handleStrokeOpacityChange(0.4);
+        if (mode === 'highlighter') {
+          setMode('mouse');
+          whiteboard.current?.setMode('mouse');
+        } else {
+          // When switching to highlighter, set default highlighter settings
+          setMode('highlighter');
+          whiteboard.current?.setMode('highlighter');
+          // Set highlighter defaults: larger width, lower opacity
+          handleStrokeWidthChange(20);
+          handleStrokeOpacityChange(0.4);
+        }
       }
     },
     {
@@ -520,25 +535,6 @@ const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
         </svg>
       ),
       onClick: () => whiteboard.current?.toggleFullscreen()
-    },
-    {
-      id: 'resetView',
-      label: labels.resetView,
-      icon: (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <rect x="3" y="3" width="18" height="18" rx="2" />
-          <path d="M9 9h6v6H9z" />
-          <path d="M9 3v2" />
-          <path d="M15 3v2" />
-          <path d="M9 19v2" />
-          <path d="M15 19v2" />
-          <path d="M3 9h2" />
-          <path d="M3 15h2" />
-          <path d="M19 9h2" />
-          <path d="M19 15h2" />
-        </svg>
-      ),
-      onClick: () => whiteboard.current?.resetView()
     }
   ];
 
@@ -587,6 +583,7 @@ const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
         onChangeImages={handleImagesChange}
         onChangeDimensions={handleDimensionsChange}
         onFullscreenChange={handleFullscreenChange}
+        onModeChange={(newMode) => setMode(newMode)}
         showGrid={showGrid}
         gridSize={gridSize}
         gridColor={gridColor}
