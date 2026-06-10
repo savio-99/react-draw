@@ -12,6 +12,8 @@ export interface DrawingBoardProps {
   initialImages?: SketchImage[];
   /** Initial dimensions to display */
   initialDimensions?: DimensionData[];
+  /** Initial mode for the whiteboard */
+  initialMode?: WhiteboardMode;
   /** Whether to show the grid */
   showGrid?: boolean;
   /** Grid size in pixels */
@@ -167,6 +169,7 @@ const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
   initialStrokes = [],
   initialImages = [],
   initialDimensions = [],
+  initialMode = 'pen',
   showGrid: initialShowGrid = true,
   gridSize = 25,
   gridColor = '#e0e0e0',
@@ -196,7 +199,7 @@ const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
   const [strokeColor, setStrokeColor] = useState(defaultPenColor);
   const [strokeWidth, setStrokeWidth] = useState(defaultPenWidth);
   //const [_, setStrokeOpacity] = useState(1);
-  const [mode, setMode] = useState<WhiteboardMode>('pen');
+  const [mode, setMode] = useState<WhiteboardMode>(initialMode);
   const [penOnly, setPenOnly] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
