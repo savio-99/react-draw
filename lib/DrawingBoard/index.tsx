@@ -1,4 +1,4 @@
-import React, { useRef, useState, useImperativeHandle, forwardRef } from 'react';
+import React, { useRef, useState, useEffect, useImperativeHandle, forwardRef } from 'react';
 import Whiteboard, { WhiteboardMode, WhiteBoard } from '../Whiteboard';
 import FloatingToolbox, { ToolboxAction } from '../FloatingToolbox';
 import { SketchImage } from '../Image';
@@ -202,6 +202,10 @@ const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
   const [mode, setMode] = useState<WhiteboardMode>(initialMode);
   const [penOnly, setPenOnly] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+
+  useEffect(() => {
+    setMode(initialMode);
+  }, [initialMode]);
 
   const labels = { ...defaultLabels, ...customLabels };
 
